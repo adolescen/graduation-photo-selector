@@ -90,33 +90,87 @@ npm start
 
 ## 部署到免费平台
 
-### 方案一：Render（推荐）
+### 推荐：Hugging Face Spaces（完全免费 + 数据持久化）
 
-1. 在 [Render](https://render.com/) 注册账号
-2. 创建新的 Web Service，连接你的 Git 仓库
-3. Build Command: `npm install`
-4. Start Command: `npm start`
-5. 在 Environment 中设置环境变量
-6. 免费版有休眠限制，访问时会唤醒（约 30 秒）
+**为什么选择 Hugging Face Spaces？**
+- ✅ 完全免费，无需信用卡
+- ✅ 提供 2vCPU + 16GB RAM
+- ✅ **`/data` 目录持久化** — SQLite 数据不会丢失
+- ✅ 无休眠，24/7 运行
+- ✅ 直接从 GitHub 部署
 
-### 方案二：Railway
+#### 部署步骤
 
-1. 在 [Railway](https://railway.app/) 注册账号
-2. 新建项目，从 GitHub 导入
-3. 添加环境变量
-4. 部署即可
+1. **注册 Hugging Face 账号**
+   打开 [huggingface.co](https://huggingface.co) 注册（支持 GitHub 快捷登录）
 
-### 方案三：本地运行（短期使用）
+2. **创建 Space**
+   - 点击头像 → **New Space**
+   - Space name: `graduation-photo-selector`
+   - License: MIT
+   - Select the Space SDK: **Docker**
+   - 点击 **Create Space**
 
-如果你的电脑有公网 IP，或者使用内网穿透工具（如 ngrok、花生壳），可以直接本地运行：
+3. **连接 GitHub**
+   - 在 Space 设置中，选择 **GitHub** 作为代码来源
+   - 连接你的 GitHub 账号 `adolescen`
+   - 选择仓库 `graduation-photo-selector`
+   - 选择分支 `master`
+   - 点击 **Link to GitHub**
+
+4. **配置环境变量**
+   在 Space 的 **Settings** → **Variables and Secrets** 中添加：
+
+   ```
+   CLASS_PASSWORD=你的班级密码
+   ADMIN_PASSWORD=你的管理员密码
+   DEADLINE=2024-12-31T23:59:59
+   OSS_REGION=oss-cn-hangzhou
+   OSS_BUCKET=adolescen
+   OSS_ACCESS_KEY_ID=你的AccessKey
+   OSS_ACCESS_KEY_SECRET=你的AccessKeySecret
+   OSS_ENDPOINT=https://jiangnan-1287723839582687.oss-cn-hangzhou.oss-accesspoint.aliyuncs.com
+   HF_DATA_DIR=/data
+   ```
+
+5. **等待构建**
+   Hugging Face 会自动拉取代码并构建 Docker 镜像。首次构建需要 3-5 分钟。
+
+6. **导入照片**
+   部署成功后，访问：
+   ```
+   https://adolescen-graduation-photo-selector.hf.space/admin.html
+   ```
+   输入管理员密码，在 **导入照片** 标签页中导入照片列表。
+
+7. **分享链接**
+   ```
+   https://adolescen-graduation-photo-selector.hf.space
+   ```
+   将链接和班级密码发到班级群。
+
+---
+
+### 备选：Render（免费但有休眠）
+
+如果你不想用 Hugging Face，Render 也是一个选择，但免费版有 15 分钟休眠机制：
+- 15 分钟无访问后休眠，下次访问需等待 30 秒唤醒
+- SQLite 数据在休眠后可能丢失（需要定期导出 CSV 备份）
+
+部署步骤见 [Render 部署指南](https://render.com/docs/deploy-node-express-app)。
+
+---
+
+## 本地运行
 
 ```bash
-# 使用 ngrok 暴露本地服务
-npx ngrok http 3000
+npm install
+npm start
 ```
 
-将生成的公网地址分享到班级群即可。
+服务将在 `http://localhost:3000` 运行。
 
+---
 ## 使用流程
 
 ### 同学端

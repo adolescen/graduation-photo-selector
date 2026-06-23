@@ -25,7 +25,8 @@ const ossClient = (() => {
 })();
 
 // ====== 数据库初始化 ======
-const db = new sqlite3.Database(path.join(__dirname, 'database.sqlite'));
+const dbPath = process.env.HF_DATA_DIR ? '/data/database.sqlite' : path.join(__dirname, 'database.sqlite');
+const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
