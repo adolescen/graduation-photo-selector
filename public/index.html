@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>毕业照片选择</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 密码验证页 -->
+    <div id="auth-page" class="page">
+        <div class="auth-card">
+            <h1>🎓 毕业照片选择</h1>
+            <p class="subtitle">班级纪念册照片投票</p>
+            <div class="form-group">
+                <input type="password" id="class-password" placeholder="请输入班级密码" maxlength="20">
+                <button onclick="verifyPassword()">进入</button>
+            </div>
+            <p id="auth-error" class="error"></p>
+        </div>
+    </div>
+
+    <!-- 姓名输入页 -->
+    <div id="name-page" class="page hidden">
+        <div class="auth-card">
+            <h2>👤 填写你的姓名</h2>
+            <p class="subtitle">请填写真实姓名，用于统计和入册</p>
+            <div class="form-group">
+                <input type="text" id="user-name" placeholder="请输入姓名" maxlength="20">
+                <button onclick="submitName()">开始选照片</button>
+            </div>
+            <p id="name-error" class="error"></p>
+            <button class="back-btn" onclick="backToAuth()">返回</button>
+        </div>
+    </div>
+
+    <!-- 选择照片页 -->
+    <div id="selector-page" class="page hidden">
+        <div class="header">
+            <div class="header-left">
+                <span class="username" id="display-name"></span>
+                <span class="deadline" id="deadline-display"></span>
+            </div>
+            <div class="header-right">
+                <button class="btn-outline" onclick="goToDashboard()">我的选择</button>
+                <button class="btn-primary" id="submit-btn" onclick="submitSelection()" disabled>提交选择</button>
+            </div>
+        </div>
+
+        <div class="filter-bar">
+            <button class="filter-btn active" data-category="all" onclick="filterCategory('all')">全部</button>
+            <button class="filter-btn" data-category="个人照" onclick="filterCategory('个人照')">个人照</button>
+            <button class="filter-btn" data-category="小组照" onclick="filterCategory('小组照')">小组照</button>
+            <button class="filter-btn" data-category="集体照" onclick="filterCategory('集体照')">集体照</button>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-info">
+                <span>已选 <strong id="selected-count">0</strong>/8 张</span>
+                <span id="status-text">还需选择8张</span>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+        </div>
+
+        <div class="photo-grid" id="photo-grid"></div>
+
+        <div class="pagination" id="pagination"></div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>加载照片中...</p>
+        </div>
+
+        <!-- 已选照片浮动面板 -->
+        <div class="selected-panel" id="selected-panel">
+            <div class="selected-panel-header" onclick="toggleSelectedPanel()">
+                <span>已选 <span id="panel-count">0</span> 张</span>
+                <span id="panel-toggle">▼</span>
+            </div>
+            <div class="selected-panel-body" id="selected-panel-body">
+                <div class="selected-thumbnails" id="selected-thumbnails"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 提交确认弹窗 -->
+    <div class="modal-overlay hidden" id="confirm-modal">
+        <div class="modal">
+            <h3>确认提交</h3>
+            <p>你已经选择了以下 <strong>8</strong> 张照片：</p>
+            <div class="confirm-photos" id="confirm-photos"></div>
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="closeModal()">再改改</button>
+                <button class="btn-primary" onclick="confirmSubmit()">确认提交</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 大图预览 -->
+    <div class="modal-overlay hidden" id="preview-modal">
+        <div class="modal preview-modal">
+            <img id="preview-img" src="" alt="预览">
+            <button class="close-btn" onclick="closePreview()">✕</button>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

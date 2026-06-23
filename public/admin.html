@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员看板 - 毕业照片选择</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 登录页 -->
+    <div id="login-page" class="page">
+        <div class="auth-card">
+            <h2>🔐 管理员登录</h2>
+            <p class="subtitle">请输入管理员密码</p>
+            <div class="form-group">
+                <input type="password" id="admin-password" placeholder="管理员密码" maxlength="20">
+                <button onclick="adminLogin()">登录</button>
+            </div>
+            <p id="login-error" class="error"></p>
+        </div>
+    </div>
+
+    <!-- 管理看板 -->
+    <div id="admin-page" class="page hidden">
+        <div class="admin-container">
+            <div class="admin-header">
+                <h2>📊 选择统计看板</h2>
+                <div>
+                    <button class="btn-outline" onclick="exportCSV()">📥 导出CSV</button>
+                    <button class="btn-outline" onclick="logout()">退出</button>
+                </div>
+            </div>
+
+            <div class="stats-cards">
+                <div class="stat-card">
+                    <div class="number" id="stat-total">0</div>
+                    <div class="label">参与人数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number" id="stat-completed">0</div>
+                    <div class="label">已完成</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number" id="stat-rate">0%</div>
+                    <div class="label">完成率</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number" id="stat-deadline">-</div>
+                    <div class="label">截止时间</div>
+                </div>
+            </div>
+
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('users')">人员选择</div>
+                <div class="tab" onclick="switchTab('photos')">照片热度</div>
+                <div class="tab" onclick="switchTab('import')">导入照片</div>
+            </div>
+
+            <!-- 人员选择 -->
+            <div class="tab-content active" id="tab-users">
+                <div class="table-container">
+                    <h3>👥 人员选择情况</h3>
+                    <div style="overflow-x: auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>姓名</th>
+                                    <th>已选数量</th>
+                                    <th>状态</th>
+                                    <th>照片ID</th>
+                                    <th>更新时间</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 照片热度 -->
+            <div class="tab-content" id="tab-photos">
+                <div class="table-container">
+                    <h3>🔥 照片选择热度</h3>
+                    <div style="overflow-x: auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>照片</th>
+                                    <th>名称</th>
+                                    <th>被选择次数</th>
+                                    <th>选择者</th>
+                                </tr>
+                            </thead>
+                            <tbody id="photos-table"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 导入照片 -->
+            <div class="tab-content" id="tab-import">
+                <div class="import-section">
+                    <h3>📤 批量导入照片</h3>
+                    <p style="color: #666; font-size: 14px; margin-bottom: 12px;">
+                        格式：每行一张照片，格式为 <code>分类|OSS路径|显示名称(可选)</code><br>
+                        示例：<code>个人照|photos/graduation/personal/img_001.jpg|张三</code>
+                    </p>
+                    <textarea id="import-text" placeholder="个人照|photos/graduation/personal/img_001.jpg&#10;小组照|photos/graduation/group/img_002.jpg&#10;集体照|photos/graduation/class/img_003.jpg|班级合影"></textarea>
+                    <button class="btn-primary" onclick="importPhotos()">导入照片</button>
+                    <p id="import-result" style="margin-top: 12px; color: #27ae60;"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        let adminPassword = localStorage.getItem('adminPassword') || '';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (adminPassword) {
+                verifyAdmin();
+            }
+
+            document.getElementById('admin-password').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') adminLogin();
+            });
+        });
+
+        function adminLogin() {
+            const password = document.getElementById('admin-password').value.trim();
+            const errorEl = document.getElementById('login-error');
+            
+            if (!password) {
+                errorEl.textContent = '请输入密码';
+                return;
+            }
+
+            fetch(`${API_BASE}/api/admin/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    adminPassword = password;
+                    localStorage.setItem('adminPassword', password);
+                    showAdminPage();
+                } else {
+                    errorEl.textContent = '密码错误';
+                }
+            })
+            .catch(() => {
+                errorEl.textContent = '网络错误';
+            });
+        }
+
+        function verifyAdmin() {
+            fetch(`${API_BASE}/api/admin/stats?password=${encodeURIComponent(adminPassword)}`)
+                .then(r => {
+                    if (r.status === 401) {
+                        localStorage.removeItem('adminPassword');
+                        adminPassword = '';
+                        return;
+                    }
+                    showAdminPage();
+                })
+                .catch(() => {});
+        }
+
+        function showAdminPage() {
+            document.getElementById('login-page').classList.add('hidden');
+            document.getElementById('admin-page').classList.remove('hidden');
+            loadStats();
+            loadSettings();
+        }
+
+        function loadSettings() {
+            fetch(`${API_BASE}/api/settings`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.deadline) {
+                        const d = new Date(data.deadline);
+                        document.getElementById('stat-deadline').textContent = 
+                            d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+                    }
+                })
+                .catch(() => {});
+        }
+
+        function loadStats() {
+            fetch(`${API_BASE}/api/admin/stats?password=${encodeURIComponent(adminPassword)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('stat-total').textContent = data.totalUsers;
+                        document.getElementById('stat-completed').textContent = data.completedUsers;
+                        const rate = data.totalUsers > 0 ? Math.round((data.completedUsers / data.totalUsers) * 100) : 0;
+                        document.getElementById('stat-rate').textContent = rate + '%';
+
+                        renderUsersTable(data.userSelections);
+                        renderPhotosTable(data.photoStats);
+                    }
+                })
+                .catch(() => alert('加载统计失败'));
+        }
+
+        function renderUsersTable(users) {
+            const tbody = document.getElementById('users-table');
+            tbody.innerHTML = '';
+
+            users.forEach(u => {
+                const isComplete = u.photoCount === 8;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${u.name}</strong></td>
+                    <td>${u.photoCount}/8</td>
+                    <td><span class="badge ${isComplete ? 'badge-success' : 'badge-warning'}">${isComplete ? '已完成' : '未完成'}</span></td>
+                    <td class="truncate">${u.photoIds.join(', ')}</td>
+                    <td>${u.updatedAt ? new Date(u.updatedAt).toLocaleString('zh-CN') : '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderPhotosTable(photos) {
+            const tbody = document.getElementById('photos-table');
+            tbody.innerHTML = '';
+
+            const maxCount = Math.max(...photos.map(p => p.count), 1);
+
+            photos.forEach(p => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><img src="${p.ossKey.includes('http') ? p.ossKey : ''}" style="width:60px;height:80px;object-fit:cover;border-radius:4px;" alt=""></td>
+                    <td>${p.displayName}</td>
+                    <td>
+                        <div class="photo-heat">
+                            <span>${p.count} 人</span>
+                            <div class="heat-bar"><div class="heat-fill" style="width:${(p.count/maxCount)*100}%"></div></div>
+                        </div>
+                    </td>
+                    <td class="truncate">${p.selectedBy.join(', ')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+
+        function exportCSV() {
+            window.open(`${API_BASE}/api/admin/export?password=${encodeURIComponent(adminPassword)}`, '_blank');
+        }
+
+        function importPhotos() {
+            const text = document.getElementById('import-text').value.trim();
+            const resultEl = document.getElementById('import-result');
+            
+            if (!text) {
+                resultEl.textContent = '请输入照片列表';
+                resultEl.style.color = '#e74c3c';
+                return;
+            }
+
+            const lines = text.split('\n').filter(l => l.trim());
+            const photos = [];
+            
+            lines.forEach(line => {
+                const parts = line.split('|').map(p => p.trim());
+                if (parts.length >= 2) {
+                    photos.push({
+                        category: parts[0],
+                        ossKey: parts[1],
+                        displayName: parts[2] || null
+                    });
+                }
+            });
+
+            if (photos.length === 0) {
+                resultEl.textContent = '未解析到有效数据';
+                resultEl.style.color = '#e74c3c';
+                return;
+            }
+
+            fetch(`${API_BASE}/api/admin/import-photos`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: adminPassword, photos })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    resultEl.textContent = data.message;
+                    resultEl.style.color = '#27ae60';
+                    document.getElementById('import-text').value = '';
+                } else {
+                    resultEl.textContent = data.message || '导入失败';
+                    resultEl.style.color = '#e74c3c';
+                }
+            })
+            .catch(() => {
+                resultEl.textContent = '网络错误';
+                resultEl.style.color = '#e74c3c';
+            });
+        }
+
+        function logout() {
+            localStorage.removeItem('adminPassword');
+            adminPassword = '';
+            location.reload();
+        }
+    </script>
+</body>
+</html>

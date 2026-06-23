@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的选择 - 毕业照片</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <h2>📷 我的选择</h2>
+            <p class="subtitle" id="user-info"></p>
+        </div>
+
+        <div id="selection-content">
+            <div class="my-photos" id="my-photos"></div>
+            <div class="actions" style="text-align: center; margin-bottom: 24px;">
+                <button class="btn-primary" onclick="backToSelector()" style="padding: 12px 32px; font-size: 16px;">
+                    修改选择
+                </button>
+            </div>
+            <p id="update-time" style="text-align: center; color: #888; font-size: 14px;"></p>
+        </div>
+
+        <div class="empty-state hidden" id="empty-state">
+            <div class="icon">📭</div>
+            <p>你还没有选择照片</p>
+            <button class="btn-primary" onclick="backToSelector()" style="margin-top: 16px;">
+                去选照片
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const userName = localStorage.getItem('userName');
+            if (!userName) {
+                window.location.href = 'index.html';
+                return;
+            }
+            
+            document.getElementById('user-info').textContent = `${userName} 的已选照片`;
+            loadMySelection(userName);
+        });
+
+        function loadMySelection(name) {
+            fetch(`${API_BASE}/api/users/${encodeURIComponent(name)}/selection`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.photoIds && data.photoIds.length > 0) {
+                        renderMyPhotos(data.photoIds);
+                        if (data.updatedAt) {
+                            document.getElementById('update-time').textContent = 
+                                `最后更新: ${new Date(data.updatedAt).toLocaleString('zh-CN')}`;
+                        }
+                    } else {
+                        showEmpty();
+                    }
+                })
+                .catch(() => showEmpty());
+        }
+
+        function renderMyPhotos(photoIds) {
+            const container = document.getElementById('my-photos');
+            container.innerHTML = '';
+            
+            // 加载所有照片并匹配
+            fetch(`${API_BASE}/api/photos?page=1&limit=10000`)
+                .then(r => r.json())
+                .then(result => {
+                    if (!result.success) return;
+                    const photoMap = {};
+                    result.photos.forEach(p => photoMap[p.id] = p);
+                    
+                    photoIds.forEach((id, index) => {
+                        const photo = photoMap[id];
+                        if (!photo) return;
+                        
+                        const item = document.createElement('div');
+                        item.className = 'my-photo-item';
+                        item.innerHTML = `
+                            <img src="${photo.thumbnailUrl}" alt="${photo.displayName}">
+                            <div class="photo-number">${index + 1}</div>
+                        `;
+                        item.onclick = () => {
+                            const modal = document.createElement('div');
+                            modal.className = 'modal-overlay';
+                            modal.style.zIndex = '200';
+                            modal.innerHTML = `
+                                <div class="modal preview-modal">
+                                    <img src="${photo.fullUrl}" alt="${photo.displayName}">
+                                    <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
+                                </div>
+                            `;
+                            modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+                            document.body.appendChild(modal);
+                        };
+                        container.appendChild(item);
+                    });
+                })
+                .catch(() => showEmpty());
+        }
+
+        function showEmpty() {
+            document.getElementById('selection-content').classList.add('hidden');
+            document.getElementById('empty-state').classList.remove('hidden');
+        }
+
+        function backToSelector() {
+            window.location.href = 'index.html';
+        }
+    </script>
+</body>
+</html>
