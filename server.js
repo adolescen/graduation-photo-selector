@@ -3,6 +3,7 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const cors = require('cors');
+const OSS = require('ali-oss');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,6 +11,18 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ====== 阿里云 OSS 客户端 ======
+const ossClient = (() => {
+  const endpoint = process.env.OSS_ENDPOINT || '';
+  if (!endpoint) return null;
+  
+  return new OSS({
+    endpoint: endpoint,
+    accessKeyId: process.env.OSS_ACCESS_KEY_ID,
+    accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET,
+  });
+})();
 
 // ====== 数据库初始化 ======
 const db = new sqlite3.Database(path.join(__dirname, 'database.sqlite'));
@@ -49,6 +62,13 @@ function isDeadlinePassed() {
 }
 
 function getOSSUrl(ossKey, isThumbnail = false) {
+  if (ossClient) {
+    const options = { expires: 86400 };
+    if (isThumbnail) {
+      options.process = 'image/resize,w_400,quality_80';
+    }
+    return ossClient.signatureUrl(ossKey, options);
+  }
   const endpoint = process.env.OSS_ENDPOINT || '';
   const base = endpoint.replace(/\/$/, '');
   const encodedKey = encodeURIComponent(ossKey).replace(/%2F/g, '/');
@@ -59,6 +79,9 @@ function getOSSUrl(ossKey, isThumbnail = false) {
 }
 
 function getOSSFullUrl(ossKey) {
+  if (ossClient) {
+    return ossClient.signatureUrl(ossKey, { expires: 86400 });
+  }
   const endpoint = process.env.OSS_ENDPOINT || '';
   const base = endpoint.replace(/\/$/, '');
   const encodedKey = encodeURIComponent(ossKey).replace(/%2F/g, '/');
@@ -90,11 +113,9 @@ app.post('/api/users', (req, res) => {
     if (err) return res.status(500).json({ success: false, message: '数据库错误' });
     
     if (row) {
-      // 已存在，返回用户ID
       return res.json({ success: true, userId: row.id, name: trimmed, exists: true });
     }
     
-    // 新建用户
     db.run('INSERT INTO users (name) VALUES (?)', [trimmed], function(err) {
       if (err) return res.status(500).json({ success: false, message: '创建用户失败' });
       res.json({ success: true, userId: this.lastID, name: trimmed, exists: false });
@@ -148,7 +169,6 @@ app.post('/api/selections', (req, res) => {
     if (err) return res.status(500).json({ success: false, message: '数据库错误' });
     
     if (row) {
-      // 更新
       db.run(
         'UPDATE selections SET photo_ids = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
         [photoIdsJson, userId],
@@ -158,7 +178,6 @@ app.post('/api/selections', (req, res) => {
         }
       );
     } else {
-      // 新建
       db.run(
         'INSERT INTO selections (user_id, photo_ids) VALUES (?, ?)',
         [userId, photoIdsJson],
@@ -263,7 +282,6 @@ app.get('/api/admin/stats', (req, res) => {
       db.all('SELECT id, oss_key, display_name FROM photos', [], (err, photoRows) => {
         if (err) return res.status(500).json({ success: false, message: '数据库错误' });
         
-        // 统计每张照片的选择次数
         const photoStats = {};
         photoRows.forEach(p => {
           photoStats[p.id] = {
