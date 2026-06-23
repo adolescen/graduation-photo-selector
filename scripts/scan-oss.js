@@ -13,9 +13,10 @@ const client = new OSS({
 
 // 配置扫描路径和分类映射
 const SCAN_CONFIG = [
-    { prefix: 'graduation/personal/', category: '个人照' },
-    { prefix: 'graduation/group/', category: '小组照' },
-    { prefix: 'graduation/class/', category: '集体照' },
+    { prefix: '江南中学毕业照/校园服单人/', category: '校园服单人' },
+    { prefix: '江南中学毕业照/校园服小组/', category: '校园服小组' },
+    { prefix: '江南中学毕业照/篮球服单人/', category: '篮球服单人' },
+    { prefix: '江南中学毕业照/运动服小组/', category: '运动服小组' },
 ];
 
 // 图片文件扩展名
