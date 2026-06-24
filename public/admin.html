@@ -100,13 +100,23 @@
             <!-- 导入照片 -->
             <div class="tab-content" id="tab-import">
                 <div class="import-section">
-                    <h3>📤 批量导入照片</h3>
+                    <h3>🔍 自动扫描导入</h3>
+                    <p style="color: #666; font-size: 14px; margin-bottom: 12px;">
+                        系统将自动扫描 OSS 根目录下的所有子文件夹，每个子文件夹作为一个分类，自动导入其中的照片。<br>
+                        <strong>请确保 OSS 中已创建好分类文件夹。</strong>
+                    </p>
+                    <button class="btn-primary" onclick="autoScan()">开始自动扫描</button>
+                    <p id="scan-result" style="margin-top: 12px; color: #27ae60;"></p>
+                </div>
+
+                <div class="import-section" style="margin-top: 20px;">
+                    <h3>📤 手动批量导入</h3>
                     <p style="color: #666; font-size: 14px; margin-bottom: 12px;">
                         格式：每行一张照片，格式为 <code>分类|OSS路径|显示名称(可选)</code><br>
-                        示例：<code>个人照|photos/graduation/personal/img_001.jpg|张三</code>
+                        示例：<code>校园服单人|江南中学毕业照/校园服单人/img_001.jpg|张三</code>
                     </p>
-                    <textarea id="import-text" placeholder="个人照|photos/graduation/personal/img_001.jpg&#10;小组照|photos/graduation/group/img_002.jpg&#10;集体照|photos/graduation/class/img_003.jpg|班级合影"></textarea>
-                    <button class="btn-primary" onclick="importPhotos()">导入照片</button>
+                    <textarea id="import-text" placeholder="校园服单人|江南中学毕业照/校园服单人/img_001.jpg&#10;校园服小组|江南中学毕业照/校园服小组/img_002.jpg&#10;篮球服单人|江南中学毕业照/篮球服单人/img_003.jpg"></textarea>
+                    <button class="btn-outline" onclick="importPhotos()">手动导入</button>
                     <p id="import-result" style="margin-top: 12px; color: #27ae60;"></p>
                 </div>
             </div>
@@ -307,6 +317,32 @@
             })
             .catch(() => {
                 resultEl.textContent = '网络错误';
+                resultEl.style.color = '#e74c3c';
+            });
+        }
+
+        function autoScan() {
+            const resultEl = document.getElementById('scan-result');
+            resultEl.textContent = '正在扫描 OSS，请稍候...';
+            resultEl.style.color = '#4a90d9';
+            
+            fetch(`${API_BASE}/api/admin/auto-scan`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: adminPassword })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    resultEl.innerHTML = `<strong>${data.message}</strong><br>分类: ${data.categories.join(', ')}`;
+                    resultEl.style.color = '#27ae60';
+                } else {
+                    resultEl.textContent = data.message || '扫描失败';
+                    resultEl.style.color = '#e74c3c';
+                }
+            })
+            .catch(() => {
+                resultEl.textContent = '网络错误，请检查 OSS 配置';
                 resultEl.style.color = '#e74c3c';
             });
         }

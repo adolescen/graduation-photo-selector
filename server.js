@@ -89,6 +89,71 @@ function getOSSFullUrl(ossKey) {
   return `${base}/${encodedKey}`;
 }
 
+// ====== 自动扫描 OSS 根目录 ======
+async function scanOSSRoot() {
+  if (!ossClient) {
+    throw new Error('OSS 客户端未配置');
+  }
+  
+  const rootPrefix = process.env.OSS_ROOT_PREFIX || '';
+  const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+  const isImage = (key) => imageExts.includes(path.extname(key).toLowerCase());
+  
+  // 1. 扫描根目录下的所有子文件夹（作为分类）
+  const result = await ossClient.list({
+    prefix: rootPrefix,
+    delimiter: '/',
+    'max-keys': 1000
+  });
+  
+  const categories = [];
+  
+  if (result.prefixes) {
+    for (const prefix of result.prefixes) {
+      // 提取分类名：去掉根前缀，去掉末尾 /
+      let categoryName = prefix;
+      if (rootPrefix && categoryName.startsWith(rootPrefix)) {
+        categoryName = categoryName.slice(rootPrefix.length);
+      }
+      categoryName = categoryName.replace(/\/$/, '');
+      
+      if (categoryName) {
+        categories.push({ prefix, name: categoryName });
+      }
+    }
+  }
+  
+  // 2. 扫描每个分类下的图片
+  const allPhotos = [];
+  
+  for (const cat of categories) {
+    let marker = null;
+    do {
+      const listResult = await ossClient.list({
+        prefix: cat.prefix,
+        marker: marker,
+        'max-keys': 1000
+      });
+      
+      if (listResult.objects) {
+        for (const obj of listResult.objects) {
+          if (isImage(obj.name)) {
+            allPhotos.push({
+              category: cat.name,
+              ossKey: obj.name,
+              displayName: path.basename(obj.name, path.extname(obj.name))
+            });
+          }
+        }
+      }
+      
+      marker = listResult.nextMarker;
+    } while (marker);
+  }
+  
+  return { categories: categories.map(c => c.name), photos: allPhotos };
+}
+
 // ====== API 路由 ======
 
 // 验证班级密码
@@ -378,6 +443,48 @@ app.post('/api/admin/import-photos', (req, res) => {
   
   stmt.finalize();
   res.json({ success: true, message: `已导入 ${inserted} 张照片` });
+});
+
+// 自动扫描并导入照片（管理员）
+app.post('/api/admin/auto-scan', async (req, res) => {
+  const { password } = req.body;
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ success: false, message: '未授权' });
+  }
+  
+  if (!ossClient) {
+    return res.status(500).json({ success: false, message: 'OSS 客户端未配置' });
+  }
+  
+  try {
+    const { categories, photos } = await scanOSSRoot();
+    
+    if (photos.length === 0) {
+      return res.json({ success: true, message: '未扫描到照片', categories: [], imported: 0 });
+    }
+    
+    const stmt = db.prepare('INSERT OR IGNORE INTO photos (oss_key, category, display_name, sort_order) VALUES (?, ?, ?, ?)');
+    let inserted = 0;
+    
+    photos.forEach((photo, index) => {
+      if (photo.ossKey && photo.category) {
+        stmt.run(photo.ossKey, photo.category, photo.displayName || null, index);
+        inserted++;
+      }
+    });
+    
+    stmt.finalize();
+    
+    res.json({
+      success: true,
+      message: `已扫描并导入 ${inserted} 张照片，共 ${categories.length} 个分类`,
+      categories,
+      imported: inserted
+    });
+  } catch (err) {
+    console.error('扫描失败:', err);
+    res.status(500).json({ success: false, message: '扫描失败: ' + err.message });
+  }
 });
 
 // ====== 启动 ======

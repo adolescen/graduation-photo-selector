@@ -7,6 +7,37 @@ let selectedPhotos = new Set();
 let photoCache = {};
 let isDeadlinePassed = false;
 
+// 加载分类并渲染按钮
+function loadCategories() {
+    fetch(`${API_BASE}/api/categories`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.categories) {
+                renderCategoryButtons(data.categories);
+            }
+        })
+        .catch(() => {});
+}
+
+function renderCategoryButtons(categories) {
+    const filterBar = document.getElementById('filter-bar');
+    if (!filterBar) return;
+    
+    // 保留"全部"按钮，移除其他旧按钮
+    const allBtn = filterBar.querySelector('[data-category="all"]');
+    filterBar.innerHTML = '';
+    if (allBtn) filterBar.appendChild(allBtn);
+    
+    categories.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = 'filter-btn';
+        btn.dataset.category = cat;
+        btn.textContent = cat;
+        btn.onclick = () => filterCategory(cat);
+        filterBar.appendChild(btn);
+    });
+}
+
 // ====== 页面切换 ======
 function showPage(id) {
     document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
@@ -66,6 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 检查本地存储
     checkLocalStorage();
     loadSettings();
+    loadCategories();
 });
 
 // ====== 姓名提交 ======
@@ -94,6 +126,7 @@ function submitName() {
             showPage('selector-page');
             loadUserSelection();
             loadPhotos();
+            loadCategories();
         } else {
             errorEl.textContent = data.message || '操作失败';
         }
@@ -123,6 +156,7 @@ function checkLocalStorage() {
                 loadUserSelection();
                 loadPhotos();
                 loadSettings();
+                loadCategories();
             }
         })
         .catch(() => {});

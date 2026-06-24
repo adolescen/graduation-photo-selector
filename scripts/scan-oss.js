@@ -11,64 +11,76 @@ const client = new OSS({
     accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET,
 });
 
-// 配置扫描路径和分类映射
-const SCAN_CONFIG = [
-    { prefix: '江南中学毕业照/校园服单人/', category: '校园服单人' },
-    { prefix: '江南中学毕业照/校园服小组/', category: '校园服小组' },
-    { prefix: '江南中学毕业照/篮球服单人/', category: '篮球服单人' },
-    { prefix: '江南中学毕业照/运动服小组/', category: '运动服小组' },
-];
+const rootPrefix = process.env.OSS_ROOT_PREFIX || '';
+const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+const isImage = (key) => imageExts.includes(path.extname(key).toLowerCase());
 
-// 图片文件扩展名
-const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-
-function isImageFile(key) {
-    const ext = path.extname(key).toLowerCase();
-    return IMAGE_EXTENSIONS.includes(ext);
-}
-
-function getDisplayName(key) {
-    // 从路径提取文件名作为显示名称
-    const filename = path.basename(key, path.extname(key));
-    return filename;
-}
-
-async function scanOSS() {
+async function scanOSSRoot() {
+    console.log(`\n📂 扫描 OSS 根目录: ${rootPrefix || '(根目录)'}`);
+    
+    // 1. 扫描根目录下的子文件夹（作为分类）
+    const result = await client.list({
+        prefix: rootPrefix,
+        delimiter: '/',
+        'max-keys': 1000
+    });
+    
+    const categories = [];
+    
+    if (result.prefixes) {
+        for (const prefix of result.prefixes) {
+            let categoryName = prefix;
+            if (rootPrefix && categoryName.startsWith(rootPrefix)) {
+                categoryName = categoryName.slice(rootPrefix.length);
+            }
+            categoryName = categoryName.replace(/\/$/, '');
+            
+            if (categoryName) {
+                categories.push({ prefix, name: categoryName });
+                console.log(`  📁 发现分类: ${categoryName}`);
+            }
+        }
+    }
+    
+    if (categories.length === 0) {
+        console.log('  ⚠️ 未找到子文件夹');
+        return { categories: [], photos: [] };
+    }
+    
+    // 2. 扫描每个分类下的图片
     const allPhotos = [];
-
-    for (const config of SCAN_CONFIG) {
-        console.log(`\n正在扫描: ${config.prefix} ...`);
-        
+    
+    for (const cat of categories) {
         let marker = null;
-        let count = 0;
+        let catCount = 0;
         
         do {
-            const result = await client.list({
-                prefix: config.prefix,
+            const listResult = await client.list({
+                prefix: cat.prefix,
                 marker: marker,
                 'max-keys': 1000
             });
             
-            if (result.objects) {
-                for (const obj of result.objects) {
-                    if (isImageFile(obj.name)) {
+            if (listResult.objects) {
+                for (const obj of listResult.objects) {
+                    if (isImage(obj.name)) {
                         allPhotos.push({
-                            category: config.category,
+                            category: cat.name,
                             ossKey: obj.name,
-                            displayName: getDisplayName(obj.name)
+                            displayName: path.basename(obj.name, path.extname(obj.name))
                         });
-                        count++;
+                        catCount++;
                     }
                 }
             }
             
-            marker = result.nextMarker;
+            marker = listResult.nextMarker;
         } while (marker);
         
-        console.log(`  找到 ${count} 张图片`);
+        console.log(`  ✅ ${cat.name}: ${catCount} 张照片`);
     }
-
-    console.log(`\n✅ 总计扫描到 ${allPhotos.length} 张照片\n`);
+    
+    console.log(`\n📊 总计: ${categories.length} 个分类, ${allPhotos.length} 张照片\n`);
     
     // 输出导入格式
     console.log('=== 复制以下内容到管理员页面的导入框 ===\n');
@@ -76,25 +88,17 @@ async function scanOSS() {
         console.log(`${photo.category}|${photo.ossKey}|${photo.displayName}`);
     }
     
-    // 同时保存到文件
+    // 保存到文件
     const fs = require('fs');
     const outputPath = path.join(__dirname, '../import-list.txt');
     const lines = allPhotos.map(p => `${p.category}|${p.ossKey}|${p.displayName}`).join('\n');
     fs.writeFileSync(outputPath, lines, 'utf-8');
     console.log(`\n💾 已保存到文件: ${outputPath}`);
     
-    // 统计
-    const stats = {};
-    allPhotos.forEach(p => {
-        stats[p.category] = (stats[p.category] || 0) + 1;
-    });
-    console.log('\n=== 分类统计 ===');
-    Object.entries(stats).forEach(([cat, num]) => {
-        console.log(`  ${cat}: ${num} 张`);
-    });
+    return { categories: categories.map(c => c.name), photos: allPhotos };
 }
 
-scanOSS().catch(err => {
+scanOSSRoot().catch(err => {
     console.error('扫描失败:', err.message);
     console.error('请检查 .env 中的 OSS 配置是否正确');
     process.exit(1);
