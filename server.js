@@ -26,6 +26,13 @@ const ossClient = (() => {
 
 // ====== 数据库初始化 ======
 const dbPath = process.env.HF_DATA_DIR ? '/data/database.sqlite' : path.join(__dirname, 'database.sqlite');
+
+// 确保数据库目录存在
+const dbDir = path.dirname(dbPath);
+if (!require('fs').existsSync(dbDir)) {
+  require('fs').mkdirSync(dbDir, { recursive: true });
+}
+
 const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
