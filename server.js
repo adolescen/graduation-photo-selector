@@ -25,15 +25,29 @@ const ossClient = (() => {
 })();
 
 // ====== 数据库初始化 ======
-const dbPath = process.env.HF_DATA_DIR ? '/data/database.sqlite' : path.join(__dirname, 'database.sqlite');
-
-// 确保数据库目录存在
+let dbPath = process.env.HF_DATA_DIR ? '/data/database.sqlite' : path.join(__dirname, 'database.sqlite');
 const dbDir = path.dirname(dbPath);
-if (!require('fs').existsSync(dbDir)) {
-  require('fs').mkdirSync(dbDir, { recursive: true });
+
+try {
+  if (!require('fs').existsSync(dbDir)) {
+    require('fs').mkdirSync(dbDir, { recursive: true });
+  }
+  // 测试目录是否可写
+  require('fs').accessSync(dbDir, require('fs').constants.W_OK);
+} catch (err) {
+  console.warn('⚠️ 无法写入数据库目录，将使用内存数据库（数据仅在服务运行期间保留）:', err.message);
+  dbPath = ':memory:';
 }
 
 const db = new sqlite3.Database(dbPath);
+
+db.on('error', (err) => {
+  console.error('SQLite 错误:', err.message);
+});
+
+if (dbPath === ':memory:') {
+  console.log('📌 使用内存数据库，重启后数据会丢失。请在管理员页面定期导出 CSV 备份。');
+}
 
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (

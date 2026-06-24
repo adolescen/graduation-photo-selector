@@ -1,7 +1,4 @@
-FROM node:20-alpine
-
-# 创建 /data 目录并设置权限（SQLite 持久化存储）
-RUN mkdir -p /data && chmod 777 /data
+FROM node:20
 
 WORKDIR /app
 COPY . .
