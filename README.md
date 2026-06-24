@@ -34,20 +34,20 @@ npm install
 
 ```bash
 # 班级访问密码（分享给同学）
-CLASS_PASSWORD=你的班级密码
+CLASS_PASSWORD=20260306
 
 # 管理员密码（你自己用）
-ADMIN_PASSWORD=admin123
+ADMIN_PASSWORD=admin0306
 
 # 截止时间（ISO 8601 格式）
-DEADLINE=2024-12-31T23:59:59
+DEADLINE=2026-07-15T23:59:59
 
 # 阿里云 OSS 配置
 OSS_REGION=oss-cn-hangzhou
-OSS_BUCKET=your-bucket
-OSS_ACCESS_KEY_ID=your-key
-OSS_ACCESS_KEY_SECRET=your-secret
-OSS_ENDPOINT=https://your-bucket.oss-cn-hangzhou.aliyuncs.com
+OSS_BUCKET=adolescen
+OSS_ACCESS_KEY_ID=你的AccessKey
+OSS_ACCESS_KEY_SECRET=你的AccessKeySecret
+OSS_ENDPOINT=https://jiangnan-1287723839582687.oss-cn-hangzhou.oss-accesspoint.aliyuncs.com
 ```
 
 ### 3. 将照片上传到阿里云 OSS
