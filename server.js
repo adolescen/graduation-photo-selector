@@ -14,14 +14,25 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ====== 阿里云 OSS 客户端 ======
 const ossClient = (() => {
-  const endpoint = process.env.OSS_ENDPOINT || '';
-  if (!endpoint) return null;
-  
-  return new OSS({
-    endpoint: endpoint,
-    accessKeyId: process.env.OSS_ACCESS_KEY_ID,
-    accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET,
-  });
+  try {
+    const endpoint = process.env.OSS_ENDPOINT || '';
+    const accessKeyId = process.env.OSS_ACCESS_KEY_ID || '';
+    const accessKeySecret = process.env.OSS_ACCESS_KEY_SECRET || '';
+    
+    if (!endpoint || !accessKeyId || !accessKeySecret) {
+      console.log('ℹ️ OSS 配置不完整，将使用直接 URL 模式（需确保 bucket 已公开读取）');
+      return null;
+    }
+    
+    return new OSS({
+      endpoint: endpoint,
+      accessKeyId: accessKeyId,
+      accessKeySecret: accessKeySecret,
+    });
+  } catch (err) {
+    console.error('⚠️ OSS 客户端初始化失败:', err.message);
+    return null;
+  }
 })();
 
 // ====== 数据库初始化 ======
@@ -509,7 +520,19 @@ app.post('/api/admin/auto-scan', async (req, res) => {
 });
 
 // ====== 启动 ======
-app.listen(PORT, () => {
+// 启动服务器
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`毕业照片选择系统已启动: http://localhost:${PORT}`);
   console.log(`截止时间: ${process.env.DEADLINE || '未设置'}`);
+  console.log(`数据库: ${dbPath === ':memory:' ? '内存模式' : dbPath}`);
+});
+
+// 优雅关闭
+process.on('SIGTERM', () => {
+  console.log('收到 SIGTERM，正在关闭...');
+  server.close(() => {
+    db.close(() => {
+      process.exit(0);
+    });
+  });
 });
