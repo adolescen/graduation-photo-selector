@@ -1,3 +1,12 @@
+---
+title: 毕业照片选择系统
+emoji: 📸
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+
 # 毕业照片选择系统
 
 一个轻量级的班级毕业照片投票网站，支持照片浏览、每人选8张、自动统计汇总。
