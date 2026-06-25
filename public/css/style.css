@@ -336,8 +336,8 @@ body {
 
 .photo-item .order-badge {
     position: absolute;
-    top: 44px;
-    right: 8px;
+    bottom: 8px;
+    left: 8px;
     width: 28px;
     height: 28px;
     background: rgba(0,0,0,0.6);
@@ -352,32 +352,26 @@ body {
 }
 
 /* 分页 */
-.pagination {
-    display: flex;
-    justify-content: center;
+.pagination { display: none; }  /* 分页已废弃，由无限滚动替代 */
+
+.load-more {
+    display: none;
+    flex-direction: column;
     align-items: center;
+    justify-content: center;
+    padding: 20px;
     gap: 8px;
-    padding: 16px;
-    background: #fff;
-    border-top: 1px solid #eee;
-}
-
-.pagination button {
-    padding: 8px 16px;
-    border: 1px solid #ddd;
-    background: #fff;
-    border-radius: 8px;
-    cursor: pointer;
-}
-
-.pagination button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.pagination .page-info {
+    color: #888;
     font-size: 14px;
-    color: #666;
+}
+
+.load-more.active { display: flex; }
+
+.load-more .spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid #e8e8e8;
+    border-top-color: #4a90d9;
 }
 
 /* 加载 */

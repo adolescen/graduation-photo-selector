@@ -3,9 +3,12 @@ const API_BASE = '';
 let currentUser = null;
 let currentCategory = 'all';
 let currentPage = 1;
+let hasMorePhotos = true;
+let isLoadingPhotos = false;
 let selectedPhotos = new Set();
 let photoCache = {};
 let isDeadlinePassed = false;
+let photoObserver = null;
 
 // 安全辅助函数：HTML 转义
 function escapeHtml(str) {
@@ -121,7 +124,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // 检查本地存储
     checkSession();
     loadSettings();
+    
+    // 设置无限滚动观察器
+    setupInfiniteScroll();
 });
+
+// ====== 无限滚动 ======
+function setupInfiniteScroll() {
+    const loadMoreEl = document.getElementById('load-more');
+    if (!loadMoreEl) return;
+    
+    photoObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting && hasMorePhotos && !isLoadingPhotos) {
+                loadMorePhotos();
+            }
+        });
+    }, { rootMargin: '200px' });
+    
+    photoObserver.observe(loadMoreEl);
+}
 
 // ====== 姓名提交 ======
 function submitName() {
@@ -172,7 +194,6 @@ function checkSession() {
     const classPassword = sessionStorage.getItem('classPassword');
     
     if (savedToken && savedName && classPassword) {
-        // 验证 session 是否有效
         fetch(`${API_BASE}/api/users/selection`, {
             headers: { 'X-Session-Token': savedToken }
         })
@@ -187,7 +208,6 @@ function checkSession() {
                 loadSettings();
                 loadCategories();
             } else {
-                // session 已过期，清除
                 sessionStorage.clear();
             }
         })
@@ -235,34 +255,58 @@ function loadUserSelection() {
         .catch(() => {});
 }
 
-// ====== 照片加载 ======
+// ====== 照片加载（无限滚动） ======
 function loadPhotos() {
+    currentPage = 1;
+    hasMorePhotos = true;
+    isLoadingPhotos = false;
+    
+    const grid = document.getElementById('photo-grid');
+    grid.innerHTML = '';
+    
+    fetchPhotoPage(1, true);
+}
+
+function loadMorePhotos() {
+    if (!hasMorePhotos || isLoadingPhotos) return;
+    currentPage++;
+    fetchPhotoPage(currentPage, false);
+}
+
+function fetchPhotoPage(page, isFirstLoad) {
     const token = sessionStorage.getItem('sessionToken');
     if (!token) return;
     
-    const loading = document.getElementById('loading');
-    loading.classList.add('active');
+    isLoadingPhotos = true;
+    const loading = isFirstLoad ? document.getElementById('loading') : document.getElementById('load-more');
+    if (loading) loading.classList.add('active');
     
-    fetch(`${API_BASE}/api/photos?category=${currentCategory}&limit=10000`, {
+    fetch(`${API_BASE}/api/photos?category=${currentCategory}&page=${page}&limit=50`, {
         headers: { 'X-Session-Token': token }
     })
         .then(r => r.json())
         .then(data => {
-            loading.classList.remove('active');
+            isLoadingPhotos = false;
+            if (loading) loading.classList.remove('active');
+            
             if (data.success) {
-                renderPhotos(data.photos);
-                // 瀑布流不需要分页，隐藏分页区域
-                document.getElementById('pagination').innerHTML = '';
+                renderPhotos(data.photos, !isFirstLoad);
+                hasMorePhotos = page < data.totalPages;
+                
+                if (!hasMorePhotos && loading) {
+                    loading.innerHTML = '<p style="color:#888">已加载全部照片</p>';
+                }
             }
         })
         .catch(() => {
-            loading.classList.remove('active');
+            isLoadingPhotos = false;
+            if (loading) loading.classList.remove('active');
         });
 }
 
-function renderPhotos(photos) {
+function renderPhotos(photos, append = false) {
     const grid = document.getElementById('photo-grid');
-    grid.innerHTML = '';
+    if (!append) grid.innerHTML = '';
     
     photos.forEach(photo => {
         photoCache[photo.id] = photo;
@@ -274,7 +318,6 @@ function renderPhotos(photos) {
         item.className = `photo-item ${isSelected ? 'selected' : ''}`;
         item.dataset.id = photo.id;
         
-        // 点击照片主体 = 选中/取消
         item.onclick = (e) => {
             if (e.target.closest('.photo-preview-btn')) {
                 e.stopPropagation();
@@ -293,30 +336,6 @@ function renderPhotos(photos) {
         
         grid.appendChild(item);
     });
-}
-
-function renderPagination(page, totalPages, total) {
-    const pagination = document.getElementById('pagination');
-    pagination.innerHTML = '';
-    
-    if (totalPages <= 1) return;
-    
-    const prevBtn = document.createElement('button');
-    prevBtn.textContent = '上一页';
-    prevBtn.disabled = page <= 1;
-    prevBtn.onclick = () => { currentPage--; loadPhotos(); };
-    pagination.appendChild(prevBtn);
-    
-    const info = document.createElement('span');
-    info.className = 'page-info';
-    info.textContent = `${page} / ${totalPages} 页 (共${total}张)`;
-    pagination.appendChild(info);
-    
-    const nextBtn = document.createElement('button');
-    nextBtn.textContent = '下一页';
-    nextBtn.disabled = page >= totalPages;
-    nextBtn.onclick = () => { currentPage++; loadPhotos(); };
-    pagination.appendChild(nextBtn);
 }
 
 // ====== 选择逻辑 ======
@@ -421,6 +440,13 @@ function toggleSelectedPanel() {
 function filterCategory(category) {
     currentCategory = category;
     currentPage = 1;
+    hasMorePhotos = true;
+    
+    // 重置 load-more 提示
+    const loadMoreEl = document.getElementById('load-more');
+    if (loadMoreEl) {
+        loadMoreEl.innerHTML = '<div class="spinner"></div><p>加载更多...</p>';
+    }
     
     document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.category === category);
@@ -514,6 +540,7 @@ function logout() {
     photoCache = {};
     currentCategory = 'all';
     currentPage = 1;
+    hasMorePhotos = true;
     showPage('auth-page');
     document.getElementById('class-password').value = '';
     document.getElementById('auth-error').textContent = '';
