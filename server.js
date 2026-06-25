@@ -421,14 +421,14 @@ app.post('/api/selections', requireAuth, (req, res) => {
 
 // 获取照片列表（需要认证，限制分页）
 app.get('/api/photos', requireAuth, (req, res) => {
-  let { category = 'all', page = 1, limit = 30 } = req.query;
+  let { category = 'all', page = 1, limit = 10000 } = req.query;
   
   page = parseInt(page);
   limit = parseInt(limit);
   
   if (isNaN(page) || page < 1) page = 1;
-  if (isNaN(limit) || limit < 1) limit = 30;
-  if (limit > 100) limit = 100;
+  if (isNaN(limit) || limit < 1) limit = 10000;
+  if (limit > 10000) limit = 10000;
   
   const offset = (page - 1) * limit;
   

@@ -235,36 +235,37 @@ body {
     background: #27ae60;
 }
 
-/* 照片网格 */
+/* 照片瀑布流 */
 .photo-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    column-count: 2;
+    column-gap: 8px;
     padding: 8px;
 }
 
 @media (min-width: 768px) {
     .photo-grid {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px;
-        padding: 16px;
+        column-count: 3;
+        column-gap: 12px;
+        padding: 12px;
     }
 }
 
 @media (min-width: 1200px) {
     .photo-grid {
-        grid-template-columns: repeat(4, 1fr);
+        column-count: 4;
+        column-gap: 12px;
     }
 }
 
 .photo-item {
     position: relative;
-    aspect-ratio: 3/4;
     border-radius: 8px;
     overflow: hidden;
     background: #eee;
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s;
+    break-inside: avoid;
+    margin-bottom: 8px;
 }
 
 .photo-item:hover {
@@ -274,37 +275,44 @@ body {
 
 .photo-item img {
     width: 100%;
-    height: 100%;
+    height: auto;
     object-fit: cover;
     display: block;
 }
 
-.photo-item .photo-overlay {
+/* 预览按钮（始终可见） */
+.photo-preview-btn {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    top: 8px;
+    left: 8px;
+    width: 32px;
+    height: 32px;
     background: rgba(0,0,0,0.5);
+    color: #fff;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0;
-    transition: opacity 0.2s;
+    font-size: 16px;
+    cursor: pointer;
+    z-index: 3;
+    opacity: 0.7;
+    transition: opacity 0.2s, background 0.2s;
+    user-select: none;
 }
 
-.photo-item:hover .photo-overlay {
+.photo-preview-btn:hover {
     opacity: 1;
-}
-
-.photo-overlay .view-icon {
-    color: #fff;
-    font-size: 24px;
+    background: rgba(0,0,0,0.8);
 }
 
 /* 选中状态 */
 .photo-item.selected {
-    box-shadow: 0 0 0 3px #4a90d9;
+    box-shadow: 0 0 0 4px #4a90d9;
+}
+
+.photo-item.selected .photo-preview-btn {
+    opacity: 0.3;
 }
 
 .photo-item.selected::after {
@@ -312,8 +320,8 @@ body {
     position: absolute;
     top: 8px;
     right: 8px;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     background: #4a90d9;
     color: #fff;
     border-radius: 50%;
@@ -321,14 +329,15 @@ body {
     align-items: center;
     justify-content: center;
     font-weight: bold;
-    font-size: 14px;
+    font-size: 16px;
     z-index: 2;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
 }
 
 .photo-item .order-badge {
     position: absolute;
-    top: 8px;
-    left: 8px;
+    top: 44px;
+    right: 8px;
     width: 28px;
     height: 28px;
     background: rgba(0,0,0,0.6);

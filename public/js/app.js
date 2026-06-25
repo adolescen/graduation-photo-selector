@@ -243,7 +243,7 @@ function loadPhotos() {
     const loading = document.getElementById('loading');
     loading.classList.add('active');
     
-    fetch(`${API_BASE}/api/photos?category=${currentCategory}&page=${currentPage}&limit=30`, {
+    fetch(`${API_BASE}/api/photos?category=${currentCategory}&limit=10000`, {
         headers: { 'X-Session-Token': token }
     })
         .then(r => r.json())
@@ -251,7 +251,8 @@ function loadPhotos() {
             loading.classList.remove('active');
             if (data.success) {
                 renderPhotos(data.photos);
-                renderPagination(data.page, data.totalPages, data.total);
+                // 瀑布流不需要分页，隐藏分页区域
+                document.getElementById('pagination').innerHTML = '';
             }
         })
         .catch(() => {
@@ -272,8 +273,11 @@ function renderPhotos(photos) {
         const item = document.createElement('div');
         item.className = `photo-item ${isSelected ? 'selected' : ''}`;
         item.dataset.id = photo.id;
+        
+        // 点击照片主体 = 选中/取消
         item.onclick = (e) => {
-            if (e.target.closest('.photo-overlay')) {
+            if (e.target.closest('.photo-preview-btn')) {
+                e.stopPropagation();
                 previewPhoto(photo.fullUrl);
             } else {
                 togglePhoto(photo.id);
@@ -284,7 +288,7 @@ function renderPhotos(photos) {
         item.innerHTML = `
             <img src="${photo.thumbnailUrl}" alt="${photo.displayName}" loading="lazy">
             ${badge}
-            <div class="photo-overlay"><span class="view-icon">🔍</span></div>
+            <div class="photo-preview-btn" title="查看大图">👁</div>
         `;
         
         grid.appendChild(item);
@@ -348,7 +352,7 @@ function togglePhoto(photoId) {
                 const newBadge = document.createElement('div');
                 newBadge.className = 'order-badge';
                 newBadge.textContent = orderIndex;
-                item.insertBefore(newBadge, item.querySelector('.photo-overlay'));
+                item.appendChild(newBadge);
             } else {
                 badge.textContent = orderIndex;
             }
