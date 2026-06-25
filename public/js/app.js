@@ -8,7 +8,6 @@ let isLoadingPhotos = false;
 let selectedPhotos = new Set();
 let photoCache = {};
 let isDeadlinePassed = false;
-let photoObserver = null;
 
 // 安全辅助函数：HTML 转义
 function escapeHtml(str) {
@@ -125,24 +124,23 @@ document.addEventListener('DOMContentLoaded', () => {
     checkSession();
     loadSettings();
     
-    // 设置无限滚动观察器
+    // 设置无限滚动
     setupInfiniteScroll();
 });
 
-// ====== 无限滚动 ======
+// ====== 无限滚动（scroll 事件，更可靠） ======
 function setupInfiniteScroll() {
-    const loadMoreEl = document.getElementById('load-more');
-    if (!loadMoreEl) return;
-    
-    photoObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting && hasMorePhotos && !isLoadingPhotos) {
-                loadMorePhotos();
-            }
-        });
-    }, { rootMargin: '200px' });
-    
-    photoObserver.observe(loadMoreEl);
+    window.addEventListener('scroll', () => {
+        if (!hasMorePhotos || isLoadingPhotos) return;
+        
+        const scrollBottom = window.scrollY + window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+        
+        // 距离底部 300px 时触发加载
+        if (scrollBottom >= docHeight - 300) {
+            loadMorePhotos();
+        }
+    });
 }
 
 // ====== 姓名提交 ======
@@ -264,6 +262,13 @@ function loadPhotos() {
     const grid = document.getElementById('photo-grid');
     grid.innerHTML = '';
     
+    // 重置 load-more 状态
+    const loadMoreEl = document.getElementById('load-more');
+    if (loadMoreEl) {
+        loadMoreEl.classList.remove('no-more');
+        loadMoreEl.classList.add('active');
+    }
+    
     fetchPhotoPage(1, true);
 }
 
@@ -278,8 +283,11 @@ function fetchPhotoPage(page, isFirstLoad) {
     if (!token) return;
     
     isLoadingPhotos = true;
-    const loading = isFirstLoad ? document.getElementById('loading') : document.getElementById('load-more');
-    if (loading) loading.classList.add('active');
+    const loading = document.getElementById('loading');
+    const loadMoreEl = document.getElementById('load-more');
+    
+    if (isFirstLoad && loading) loading.classList.add('active');
+    if (!isFirstLoad && loadMoreEl) loadMoreEl.classList.add('active');
     
     fetch(`${API_BASE}/api/photos?category=${currentCategory}&page=${page}&limit=50`, {
         headers: { 'X-Session-Token': token }
@@ -288,19 +296,21 @@ function fetchPhotoPage(page, isFirstLoad) {
         .then(data => {
             isLoadingPhotos = false;
             if (loading) loading.classList.remove('active');
+            if (loadMoreEl) loadMoreEl.classList.remove('active');
             
             if (data.success) {
                 renderPhotos(data.photos, !isFirstLoad);
                 hasMorePhotos = page < data.totalPages;
                 
-                if (!hasMorePhotos && loading) {
-                    loading.innerHTML = '<p style="color:#888">已加载全部照片</p>';
+                if (!hasMorePhotos && loadMoreEl) {
+                    loadMoreEl.classList.add('no-more');
                 }
             }
         })
         .catch(() => {
             isLoadingPhotos = false;
             if (loading) loading.classList.remove('active');
+            if (loadMoreEl) loadMoreEl.classList.remove('active');
         });
 }
 
@@ -318,6 +328,7 @@ function renderPhotos(photos, append = false) {
         item.className = `photo-item ${isSelected ? 'selected' : ''}`;
         item.dataset.id = photo.id;
         
+        // 点击照片主体 = 选中/取消
         item.onclick = (e) => {
             if (e.target.closest('.photo-preview-btn')) {
                 e.stopPropagation();
@@ -338,7 +349,7 @@ function renderPhotos(photos, append = false) {
     });
 }
 
-// ====== 选择逻辑 ======
+// ====== 选择逻辑（不限制数量） ======
 function togglePhoto(photoId) {
     if (isDeadlinePassed) {
         alert('已超过截止时间，无法修改选择');
@@ -348,33 +359,28 @@ function togglePhoto(photoId) {
     if (selectedPhotos.has(photoId)) {
         selectedPhotos.delete(photoId);
     } else {
-        if (selectedPhotos.size >= 8) {
-            alert('已选满8张，如需更换请先取消已选的照片');
-            return;
-        }
         selectedPhotos.add(photoId);
     }
     
     updateSelectionUI();
     
-    const items = document.querySelectorAll('.photo-item');
-    items.forEach(item => {
+    // 选中状态更新
+    document.querySelectorAll('.photo-item').forEach(item => {
         const id = parseInt(item.dataset.id);
         const isSelected = selectedPhotos.has(id);
         const orderIndex = Array.from(selectedPhotos).indexOf(id) + 1;
         
         item.classList.toggle('selected', isSelected);
         
-        const badge = item.querySelector('.order-badge');
+        // 更新或移除 order-badge
+        let badge = item.querySelector('.order-badge');
         if (isSelected) {
             if (!badge) {
-                const newBadge = document.createElement('div');
-                newBadge.className = 'order-badge';
-                newBadge.textContent = orderIndex;
-                item.appendChild(newBadge);
-            } else {
-                badge.textContent = orderIndex;
+                badge = document.createElement('div');
+                badge.className = 'order-badge';
+                item.appendChild(badge);
             }
+            badge.textContent = orderIndex;
         } else if (badge) {
             badge.remove();
         }
@@ -387,12 +393,12 @@ function updateSelectionUI() {
     document.getElementById('panel-count').textContent = count;
     
     const progressFill = document.getElementById('progress-fill');
-    progressFill.style.width = `${(count / 8) * 100}%`;
-    progressFill.classList.toggle('complete', count === 8);
+    progressFill.style.width = `${Math.min((count / 8) * 100, 100)}%`;
+    progressFill.classList.toggle('complete', count >= 8);
     
     const statusText = document.getElementById('status-text');
-    if (count === 8) {
-        statusText.textContent = '选够了，可以提交！';
+    if (count >= 8) {
+        statusText.textContent = '已选够8张，可以提交！';
         statusText.style.color = '#27ae60';
     } else if (count === 0) {
         statusText.textContent = '还需选择8张';
@@ -403,7 +409,7 @@ function updateSelectionUI() {
     }
     
     const submitBtn = document.getElementById('submit-btn');
-    submitBtn.disabled = count !== 8 || isDeadlinePassed;
+    submitBtn.disabled = count < 8 || isDeadlinePassed;
     if (isDeadlinePassed) {
         submitBtn.textContent = '已截止';
     }
@@ -442,10 +448,11 @@ function filterCategory(category) {
     currentPage = 1;
     hasMorePhotos = true;
     
-    // 重置 load-more 提示
+    // 重置 load-more 状态
     const loadMoreEl = document.getElementById('load-more');
     if (loadMoreEl) {
-        loadMoreEl.innerHTML = '<div class="spinner"></div><p>加载更多...</p>';
+        loadMoreEl.classList.remove('no-more');
+        loadMoreEl.classList.add('active');
     }
     
     document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -455,10 +462,10 @@ function filterCategory(category) {
     loadPhotos();
 }
 
-// ====== 提交 ======
+// ====== 提交（提交时自动取前8张） ======
 function submitSelection() {
-    if (selectedPhotos.size !== 8) {
-        alert('必须选择恰好8张照片');
+    if (selectedPhotos.size < 8) {
+        alert('需要至少选择8张照片才能提交');
         return;
     }
     
@@ -466,7 +473,10 @@ function submitSelection() {
     const confirmPhotos = document.getElementById('confirm-photos');
     confirmPhotos.innerHTML = '';
     
-    photoIds.forEach(id => {
+    // 只显示前8张（如果超过8张，提示用户）
+    const displayIds = photoIds.slice(0, 8);
+    
+    displayIds.forEach(id => {
         const photo = photoCache[id];
         if (photo) {
             const img = document.createElement('img');
@@ -475,6 +485,14 @@ function submitSelection() {
             confirmPhotos.appendChild(img);
         }
     });
+    
+    // 更新弹窗文字
+    const modalTitle = document.querySelector('#confirm-modal h3');
+    if (photoIds.length > 8) {
+        modalTitle.innerHTML = `确认提交 <small style="color:#e74c3c">（您已选择 ${photoIds.length} 张，将自动取前8张）</small>`;
+    } else {
+        modalTitle.textContent = '确认提交';
+    }
     
     document.getElementById('confirm-modal').classList.remove('hidden');
 }
@@ -490,7 +508,8 @@ function confirmSubmit() {
         return;
     }
     
-    const photoIds = Array.from(selectedPhotos);
+    // 只提交前8张
+    const photoIds = Array.from(selectedPhotos).slice(0, 8);
     
     fetch(`${API_BASE}/api/selections`, {
         method: 'POST',

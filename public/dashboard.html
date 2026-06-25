@@ -70,63 +70,88 @@
             const container = document.getElementById('my-photos');
             container.innerHTML = '';
             
-            // 加载所有照片并匹配
-            fetch(`${API_BASE}/api/photos?page=1&limit=100`, {
-                headers: { 'X-Session-Token': token }
-            })
-                .then(r => r.json())
-                .then(result => {
-                    if (!result.success) return;
-                    const photoMap = {};
-                    result.photos.forEach(p => photoMap[p.id] = p);
-                    
-                    photoIds.forEach((id, index) => {
-                        const photo = photoMap[id];
-                        if (!photo) return;
-                        
-                        const item = document.createElement('div');
-                        item.className = 'my-photo-item';
-                        
-                        const img = document.createElement('img');
-                        img.src = photo.thumbnailUrl;
-                        img.alt = photo.displayName || '';
-                        
-                        const num = document.createElement('div');
-                        num.className = 'photo-number';
-                        num.textContent = index + 1;
-                        
-                        item.appendChild(img);
-                        item.appendChild(num);
-                        
-                        item.onclick = () => {
-                            const modal = document.createElement('div');
-                            modal.className = 'modal-overlay';
-                            modal.style.zIndex = '200';
-                            
-                            const modalInner = document.createElement('div');
-                            modalInner.className = 'modal preview-modal';
-                            
-                            const previewImg = document.createElement('img');
-                            previewImg.src = photo.fullUrl;
-                            previewImg.alt = photo.displayName || '';
-                            
-                            const closeBtn = document.createElement('button');
-                            closeBtn.className = 'close-btn';
-                            closeBtn.textContent = '✕';
-                            closeBtn.onclick = () => modal.remove();
-                            
-                            modalInner.appendChild(previewImg);
-                            modalInner.appendChild(closeBtn);
-                            modal.appendChild(modalInner);
-                            
-                            modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
-                            document.body.appendChild(modal);
-                        };
-                        
-                        container.appendChild(item);
-                    });
+            // 递归加载所有页面，确保8张照片都能找到
+            let allPhotos = [];
+            let currentPage = 1;
+            
+            function fetchAllPages() {
+                fetch(`${API_BASE}/api/photos?page=${currentPage}&limit=100`, {
+                    headers: { 'X-Session-Token': token }
                 })
-                .catch(() => showEmpty());
+                    .then(r => r.json())
+                    .then(result => {
+                        if (!result.success) {
+                            showEmpty();
+                            return;
+                        }
+                        
+                        allPhotos = allPhotos.concat(result.photos);
+                        
+                        if (currentPage < result.totalPages) {
+                            currentPage++;
+                            fetchAllPages();
+                        } else {
+                            // 所有照片加载完成，开始匹配渲染
+                            const photoMap = {};
+                            allPhotos.forEach(p => photoMap[p.id] = p);
+                            
+                            let foundCount = 0;
+                            photoIds.forEach((id, index) => {
+                                const photo = photoMap[id];
+                                if (!photo) return;
+                                foundCount++;
+                                
+                                const item = document.createElement('div');
+                                item.className = 'my-photo-item';
+                                
+                                const img = document.createElement('img');
+                                img.src = photo.thumbnailUrl;
+                                img.alt = photo.displayName || '';
+                                
+                                const num = document.createElement('div');
+                                num.className = 'photo-number';
+                                num.textContent = index + 1;
+                                
+                                item.appendChild(img);
+                                item.appendChild(num);
+                                
+                                item.onclick = () => {
+                                    const modal = document.createElement('div');
+                                    modal.className = 'modal-overlay';
+                                    modal.style.zIndex = '200';
+                                    
+                                    const modalInner = document.createElement('div');
+                                    modalInner.className = 'modal preview-modal';
+                                    
+                                    const previewImg = document.createElement('img');
+                                    previewImg.src = photo.fullUrl;
+                                    previewImg.alt = photo.displayName || '';
+                                    
+                                    const closeBtn = document.createElement('button');
+                                    closeBtn.className = 'close-btn';
+                                    closeBtn.textContent = '✕';
+                                    closeBtn.onclick = () => modal.remove();
+                                    
+                                    modalInner.appendChild(previewImg);
+                                    modalInner.appendChild(closeBtn);
+                                    modal.appendChild(modalInner);
+                                    
+                                    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+                                    document.body.appendChild(modal);
+                                };
+                                
+                                container.appendChild(item);
+                            });
+                            
+                            if (foundCount === 0) {
+                                showEmpty();
+                            }
+                        }
+                    })
+                    .catch(() => showEmpty());
+            }
+            
+            fetchAllPages();
         }
 
         function showEmpty() {
