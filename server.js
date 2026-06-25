@@ -660,18 +660,73 @@ app.post('/api/admin/auto-scan', requireAdmin, async (req, res) => {
 });
 
 // ====== 启动 ======
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`毕业照片选择系统已启动: http://localhost:${PORT}`);
-  console.log(`截止时间: ${process.env.DEADLINE || '未设置'}`);
-  console.log(`数据库: ${dbPath === ':memory:' ? '内存模式' : dbPath}`);
-});
-
-// 优雅关闭
-process.on('SIGTERM', () => {
-  console.log('收到 SIGTERM，正在关闭...');
-  server.close(() => {
-    db.close(() => {
-      process.exit(0);
+// 自动检测：如果数据库中无照片，自动扫描 OSS 导入
+function autoDetectAndImport() {
+  if (!ossClient) {
+    console.log('ℹ️ OSS 未配置，跳过自动扫描');
+    return;
+  }
+  
+  db.get('SELECT COUNT(*) as count FROM photos', [], (err, row) => {
+    if (err) {
+      console.error('⚠️ 检查照片数量失败:', err.message);
+      startServer();
+      return;
+    }
+    
+    if (row.count > 0) {
+      console.log(`📸 数据库中已有 ${row.count} 张照片，跳过自动扫描`);
+      startServer();
+      return;
+    }
+    
+    console.log('🔍 数据库中无照片，开始自动扫描 OSS...');
+    
+    scanOSSRoot().then(({ categories, photos }) => {
+      if (photos.length === 0) {
+        console.log('⚠️ OSS 中未扫描到照片，请确认 OSS_ROOT_PREFIX 配置正确');
+        startServer();
+        return;
+      }
+      
+      const stmt = db.prepare('INSERT OR IGNORE INTO photos (oss_key, category, display_name, sort_order) VALUES (?, ?, ?, ?)');
+      let inserted = 0;
+      
+      photos.forEach((photo, index) => {
+        if (photo.ossKey && photo.category) {
+          stmt.run(photo.ossKey, photo.category, photo.displayName || null, index);
+          inserted++;
+        }
+      });
+      
+      stmt.finalize();
+      console.log(`✅ 自动扫描完成：导入 ${inserted} 张照片，${categories.length} 个分类`);
+      console.log(`   分类: ${categories.join(', ')}`);
+      startServer();
+    }).catch(err => {
+      console.error('⚠️ 自动扫描失败:', err.message);
+      console.log('   请检查 OSS 配置是否正确，或手动在管理员页面导入');
+      startServer();
     });
   });
-});
+}
+
+function startServer() {
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`毕业照片选择系统已启动: http://localhost:${PORT}`);
+    console.log(`截止时间: ${process.env.DEADLINE || '未设置'}`);
+    console.log(`数据库: ${dbPath === ':memory:' ? '内存模式' : dbPath}`);
+  });
+
+  // 优雅关闭
+  process.on('SIGTERM', () => {
+    console.log('收到 SIGTERM，正在关闭...');
+    server.close(() => {
+      db.close(() => {
+        process.exit(0);
+      });
+    });
+  });
+}
+
+autoDetectAndImport();
