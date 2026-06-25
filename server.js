@@ -22,37 +22,28 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ====== 阿里云 OSS 客户端 ======
 const ossClient = (() => {
   try {
-    const endpoint = process.env.OSS_ENDPOINT || '';
     const accessKeyId = process.env.OSS_ACCESS_KEY_ID || '';
     const accessKeySecret = process.env.OSS_ACCESS_KEY_SECRET || '';
     const bucket = process.env.OSS_BUCKET || '';
     const region = process.env.OSS_REGION || '';
     
-    if (!endpoint || !accessKeyId || !accessKeySecret) {
-      console.log('ℹ️ OSS 配置不完整，将使用直接 URL 模式');
+    if (!accessKeyId || !accessKeySecret) {
+      console.log('ℹ️ OSS AccessKey 未配置，将使用直接 URL 模式');
       return null;
     }
     
-    const isAccessPoint = endpoint.includes('oss-accesspoint');
-    
-    if (isAccessPoint) {
-      // AccessPoint 端点：指定 bucket + cname=true，阻止 SDK 拼接域名
-      return new OSS({
-        endpoint: endpoint,
-        accessKeyId: accessKeyId,
-        accessKeySecret: accessKeySecret,
-        bucket: bucket,
-        cname: true,
-      });
-    } else {
-      // 普通 endpoint 或 region 方式
-      return new OSS({
-        region: region,
-        accessKeyId: accessKeyId,
-        accessKeySecret: accessKeySecret,
-        bucket: bucket,
-      });
+    if (!region || !bucket) {
+      console.log('ℹ️ OSS region 或 bucket 未配置，将使用直接 URL 模式');
+      return null;
     }
+    
+    // 使用 region + bucket 方式初始化（AccessPoint 端点不支持 list 操作）
+    return new OSS({
+      region: region,
+      accessKeyId: accessKeyId,
+      accessKeySecret: accessKeySecret,
+      bucket: bucket,
+    });
   } catch (err) {
     console.error('⚠️ OSS 客户端初始化失败:', err.message);
     return null;
