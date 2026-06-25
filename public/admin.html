@@ -421,6 +421,10 @@
 
         function logout() {
             adminToken = '';
+            // 同时清除可能存在的同学身份，避免身份混淆
+            sessionStorage.removeItem('sessionToken');
+            sessionStorage.removeItem('userName');
+            sessionStorage.removeItem('classPassword');
             location.reload();
         }
     </script>

@@ -500,3 +500,17 @@ function closePreview() {
 function goToDashboard() {
     window.location.href = 'dashboard.html';
 }
+
+// ====== 退出登录 ======
+function logout() {
+    if (!confirm('确定要退出当前身份吗？')) return;
+    sessionStorage.clear();
+    currentUser = null;
+    selectedPhotos.clear();
+    photoCache = {};
+    currentCategory = 'all';
+    currentPage = 1;
+    showPage('auth-page');
+    document.getElementById('class-password').value = '';
+    document.getElementById('auth-error').textContent = '';
+}
