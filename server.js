@@ -184,10 +184,17 @@ function requireAdmin(req, res, next) {
     return res.status(401).json({ success: false, message: '未授权' });
   }
   
-  if (token !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ success: false, message: '密码错误' });
-  }
-  next();
+  // 检查数据库中的 admin session token
+  db.get(
+    `SELECT * FROM sessions WHERE token = ? AND type = 'admin' AND (expires_at IS NULL OR expires_at > datetime('now'))`,
+    [token],
+    (err, row) => {
+      if (err || !row) {
+        return res.status(401).json({ success: false, message: '未授权或会话已过期' });
+      }
+      next();
+    }
+  );
 }
 
 // ====== 自动扫描 OSS 根目录 ======
