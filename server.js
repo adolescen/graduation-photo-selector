@@ -36,11 +36,13 @@ const ossClient = (() => {
     const isAccessPoint = endpoint.includes('oss-accesspoint');
     
     if (isAccessPoint) {
-      // AccessPoint 端点已包含 bucket 映射，不需要显式指定 bucket
+      // AccessPoint 端点：指定 bucket + cname=true，阻止 SDK 拼接域名
       return new OSS({
         endpoint: endpoint,
         accessKeyId: accessKeyId,
         accessKeySecret: accessKeySecret,
+        bucket: bucket,
+        cname: true,
       });
     } else {
       // 普通 endpoint 或 region 方式
