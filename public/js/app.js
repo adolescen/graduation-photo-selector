@@ -7,9 +7,34 @@ let selectedPhotos = new Set();
 let photoCache = {};
 let isDeadlinePassed = false;
 
+// 安全辅助函数：HTML 转义
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;');
+}
+
+// 获取认证请求头
+function getAuthHeaders() {
+    const token = sessionStorage.getItem('sessionToken');
+    return {
+        'Content-Type': 'application/json',
+        ...(token ? { 'X-Session-Token': token } : {})
+    };
+}
+
 // 加载分类并渲染按钮
 function loadCategories() {
-    fetch(`${API_BASE}/api/categories`)
+    const token = sessionStorage.getItem('sessionToken');
+    if (!token) return;
+    
+    fetch(`${API_BASE}/api/categories`, {
+        headers: { 'X-Session-Token': token }
+    })
         .then(r => r.json())
         .then(data => {
             if (data.success && data.categories) {
@@ -23,7 +48,6 @@ function renderCategoryButtons(categories) {
     const filterBar = document.getElementById('filter-bar');
     if (!filterBar) return;
     
-    // 保留"全部"按钮，移除其他旧按钮
     const allBtn = filterBar.querySelector('[data-category="all"]');
     filterBar.innerHTML = '';
     if (allBtn) filterBar.appendChild(allBtn);
@@ -62,7 +86,7 @@ function verifyPassword() {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            localStorage.setItem('classPassword', password);
+            sessionStorage.setItem('classPassword', password);
             showPage('name-page');
             document.getElementById('user-name').focus();
         } else {
@@ -95,14 +119,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // 检查本地存储
-    checkLocalStorage();
+    checkSession();
     loadSettings();
-    loadCategories();
 });
 
 // ====== 姓名提交 ======
 function submitName() {
     const name = document.getElementById('user-name').value.trim();
+    const classPassword = sessionStorage.getItem('classPassword');
     const errorEl = document.getElementById('name-error');
     
     if (!name) {
@@ -110,17 +134,23 @@ function submitName() {
         return;
     }
     
+    if (!classPassword) {
+        errorEl.textContent = '会话已过期，请重新输入班级密码';
+        showPage('auth-page');
+        return;
+    }
+    
     fetch(`${API_BASE}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name, classPassword })
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
             currentUser = { id: data.userId, name: data.name };
-            localStorage.setItem('userName', data.name);
-            localStorage.setItem('userId', data.userId);
+            sessionStorage.setItem('userName', data.name);
+            sessionStorage.setItem('sessionToken', data.token);
             
             document.getElementById('display-name').textContent = data.name;
             showPage('selector-page');
@@ -136,30 +166,34 @@ function submitName() {
     });
 }
 
-function checkLocalStorage() {
-    const savedName = localStorage.getItem('userName');
-    const savedPassword = localStorage.getItem('classPassword');
+function checkSession() {
+    const savedName = sessionStorage.getItem('userName');
+    const savedToken = sessionStorage.getItem('sessionToken');
+    const classPassword = sessionStorage.getItem('classPassword');
     
-    if (savedPassword && savedName) {
-        // 验证密码是否有效
-        fetch(`${API_BASE}/api/auth/verify`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password: savedPassword })
+    if (savedToken && savedName && classPassword) {
+        // 验证 session 是否有效
+        fetch(`${API_BASE}/api/users/selection`, {
+            headers: { 'X-Session-Token': savedToken }
         })
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                currentUser = { name: savedName };
+                currentUser = { name: savedName, id: data.userId };
                 showPage('selector-page');
                 document.getElementById('display-name').textContent = savedName;
                 loadUserSelection();
                 loadPhotos();
                 loadSettings();
                 loadCategories();
+            } else {
+                // session 已过期，清除
+                sessionStorage.clear();
             }
         })
-        .catch(() => {});
+        .catch(() => {
+            sessionStorage.clear();
+        });
     }
 }
 
@@ -184,15 +218,17 @@ function loadSettings() {
 }
 
 function loadUserSelection() {
-    if (!currentUser || !currentUser.name) return;
+    const token = sessionStorage.getItem('sessionToken');
+    if (!token) return;
     
-    fetch(`${API_BASE}/api/users/${encodeURIComponent(currentUser.name)}/selection`)
+    fetch(`${API_BASE}/api/users/selection`, {
+        headers: { 'X-Session-Token': token }
+    })
         .then(r => r.json())
         .then(data => {
             if (data.success && data.photoIds) {
                 selectedPhotos = new Set(data.photoIds);
-                currentUser.id = data.userId;
-                localStorage.setItem('userId', data.userId);
+                currentUser = { id: data.userId, name: data.name };
                 updateSelectionUI();
             }
         })
@@ -201,10 +237,15 @@ function loadUserSelection() {
 
 // ====== 照片加载 ======
 function loadPhotos() {
+    const token = sessionStorage.getItem('sessionToken');
+    if (!token) return;
+    
     const loading = document.getElementById('loading');
     loading.classList.add('active');
     
-    fetch(`${API_BASE}/api/photos?category=${currentCategory}&page=${currentPage}&limit=30`)
+    fetch(`${API_BASE}/api/photos?category=${currentCategory}&page=${currentPage}&limit=30`, {
+        headers: { 'X-Session-Token': token }
+    })
         .then(r => r.json())
         .then(data => {
             loading.classList.remove('active');
@@ -239,9 +280,10 @@ function renderPhotos(photos) {
             }
         };
         
+        const badge = isSelected ? `<div class="order-badge">${orderIndex}</div>` : '';
         item.innerHTML = `
             <img src="${photo.thumbnailUrl}" alt="${photo.displayName}" loading="lazy">
-            ${isSelected ? `<div class="order-badge">${orderIndex}</div>` : ''}
+            ${badge}
             <div class="photo-overlay"><span class="view-icon">🔍</span></div>
         `;
         
@@ -292,7 +334,6 @@ function togglePhoto(photoId) {
     
     updateSelectionUI();
     
-    // 更新当前页面的照片选中状态
     const items = document.querySelectorAll('.photo-item');
     items.forEach(item => {
         const id = parseInt(item.dataset.id);
@@ -342,8 +383,6 @@ function updateSelectionUI() {
     submitBtn.disabled = count !== 8 || isDeadlinePassed;
     if (isDeadlinePassed) {
         submitBtn.textContent = '已截止';
-    } else {
-        submitBtn.textContent = count === 8 ? '提交选择' : '提交选择';
     }
     
     updateSelectedPanel();
@@ -415,8 +454,9 @@ function closeModal() {
 }
 
 function confirmSubmit() {
-    if (!currentUser || !currentUser.id) {
-        alert('用户信息缺失，请刷新页面重试');
+    const token = sessionStorage.getItem('sessionToken');
+    if (!token) {
+        alert('会话已过期，请重新登录');
         return;
     }
     
@@ -424,8 +464,8 @@ function confirmSubmit() {
     
     fetch(`${API_BASE}/api/selections`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id, photoIds })
+        headers: { 'Content-Type': 'application/json', 'X-Session-Token': token },
+        body: JSON.stringify({ photoIds })
     })
     .then(r => r.json())
     .then(data => {

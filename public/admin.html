@@ -125,13 +125,20 @@
 
     <script>
         const API_BASE = '';
-        let adminPassword = localStorage.getItem('adminPassword') || '';
+        let adminToken = '';
+
+        // 安全辅助：HTML 转义
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#x27;');
+        }
 
         document.addEventListener('DOMContentLoaded', () => {
-            if (adminPassword) {
-                verifyAdmin();
-            }
-
             document.getElementById('admin-password').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') adminLogin();
             });
@@ -153,9 +160,8 @@
             })
             .then(r => r.json())
             .then(data => {
-                if (data.success) {
-                    adminPassword = password;
-                    localStorage.setItem('adminPassword', password);
+                if (data.success && data.token) {
+                    adminToken = data.token;
                     showAdminPage();
                 } else {
                     errorEl.textContent = '密码错误';
@@ -164,19 +170,6 @@
             .catch(() => {
                 errorEl.textContent = '网络错误';
             });
-        }
-
-        function verifyAdmin() {
-            fetch(`${API_BASE}/api/admin/stats?password=${encodeURIComponent(adminPassword)}`)
-                .then(r => {
-                    if (r.status === 401) {
-                        localStorage.removeItem('adminPassword');
-                        adminPassword = '';
-                        return;
-                    }
-                    showAdminPage();
-                })
-                .catch(() => {});
         }
 
         function showAdminPage() {
@@ -200,20 +193,26 @@
         }
 
         function loadStats() {
-            fetch(`${API_BASE}/api/admin/stats?password=${encodeURIComponent(adminPassword)}`)
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        document.getElementById('stat-total').textContent = data.totalUsers;
-                        document.getElementById('stat-completed').textContent = data.completedUsers;
-                        const rate = data.totalUsers > 0 ? Math.round((data.completedUsers / data.totalUsers) * 100) : 0;
-                        document.getElementById('stat-rate').textContent = rate + '%';
+            if (!adminToken) return;
+            
+            fetch(`${API_BASE}/api/admin/stats`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: adminToken })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('stat-total').textContent = data.totalUsers;
+                    document.getElementById('stat-completed').textContent = data.completedUsers;
+                    const rate = data.totalUsers > 0 ? Math.round((data.completedUsers / data.totalUsers) * 100) : 0;
+                    document.getElementById('stat-rate').textContent = rate + '%';
 
-                        renderUsersTable(data.userSelections);
-                        renderPhotosTable(data.photoStats);
-                    }
-                })
-                .catch(() => alert('加载统计失败'));
+                    renderUsersTable(data.userSelections);
+                    renderPhotosTable(data.photoStats);
+                }
+            })
+            .catch(() => alert('加载统计失败'));
         }
 
         function renderUsersTable(users) {
@@ -223,13 +222,33 @@
             users.forEach(u => {
                 const isComplete = u.photoCount === 8;
                 const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td><strong>${u.name}</strong></td>
-                    <td>${u.photoCount}/8</td>
-                    <td><span class="badge ${isComplete ? 'badge-success' : 'badge-warning'}">${isComplete ? '已完成' : '未完成'}</span></td>
-                    <td class="truncate">${u.photoIds.join(', ')}</td>
-                    <td>${u.updatedAt ? new Date(u.updatedAt).toLocaleString('zh-CN') : '-'}</td>
-                `;
+                
+                const nameTd = document.createElement('td');
+                const nameStrong = document.createElement('strong');
+                nameStrong.textContent = u.name;
+                nameTd.appendChild(nameStrong);
+                
+                const countTd = document.createElement('td');
+                countTd.textContent = `${u.photoCount}/8`;
+                
+                const statusTd = document.createElement('td');
+                const badge = document.createElement('span');
+                badge.className = `badge ${isComplete ? 'badge-success' : 'badge-warning'}`;
+                badge.textContent = isComplete ? '已完成' : '未完成';
+                statusTd.appendChild(badge);
+                
+                const idsTd = document.createElement('td');
+                idsTd.className = 'truncate';
+                idsTd.textContent = u.photoIds.join(', ');
+                
+                const timeTd = document.createElement('td');
+                timeTd.textContent = u.updatedAt ? new Date(u.updatedAt).toLocaleString('zh-CN') : '-';
+                
+                tr.appendChild(nameTd);
+                tr.appendChild(countTd);
+                tr.appendChild(statusTd);
+                tr.appendChild(idsTd);
+                tr.appendChild(timeTd);
                 tbody.appendChild(tr);
             });
         }
@@ -242,17 +261,40 @@
 
             photos.forEach(p => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td><img src="${p.ossKey.includes('http') ? p.ossKey : ''}" style="width:60px;height:80px;object-fit:cover;border-radius:4px;" alt=""></td>
-                    <td>${p.displayName}</td>
-                    <td>
-                        <div class="photo-heat">
-                            <span>${p.count} 人</span>
-                            <div class="heat-bar"><div class="heat-fill" style="width:${(p.count/maxCount)*100}%"></div></div>
-                        </div>
-                    </td>
-                    <td class="truncate">${p.selectedBy.join(', ')}</td>
-                `;
+                
+                const imgTd = document.createElement('td');
+                const img = document.createElement('img');
+                img.src = p.ossKey.includes('http') ? p.ossKey : '';
+                img.style.cssText = 'width:60px;height:80px;object-fit:cover;border-radius:4px;';
+                img.alt = '';
+                imgTd.appendChild(img);
+                
+                const nameTd = document.createElement('td');
+                nameTd.textContent = p.displayName;
+                
+                const heatTd = document.createElement('td');
+                const heatDiv = document.createElement('div');
+                heatDiv.className = 'photo-heat';
+                const span = document.createElement('span');
+                span.textContent = `${p.count} 人`;
+                const bar = document.createElement('div');
+                bar.className = 'heat-bar';
+                const fill = document.createElement('div');
+                fill.className = 'heat-fill';
+                fill.style.width = `${(p.count / maxCount) * 100}%`;
+                bar.appendChild(fill);
+                heatDiv.appendChild(span);
+                heatDiv.appendChild(bar);
+                heatTd.appendChild(heatDiv);
+                
+                const byTd = document.createElement('td');
+                byTd.className = 'truncate';
+                byTd.textContent = p.selectedBy.join(', ');
+                
+                tr.appendChild(imgTd);
+                tr.appendChild(nameTd);
+                tr.appendChild(heatTd);
+                tr.appendChild(byTd);
                 tbody.appendChild(tr);
             });
         }
@@ -266,7 +308,25 @@
         }
 
         function exportCSV() {
-            window.open(`${API_BASE}/api/admin/export?password=${encodeURIComponent(adminPassword)}`, '_blank');
+            if (!adminToken) return;
+            
+            fetch(`${API_BASE}/api/admin/export`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: adminToken })
+            })
+            .then(r => r.blob())
+            .then(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'selections.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            })
+            .catch(() => alert('导出失败'));
         }
 
         function importPhotos() {
@@ -299,10 +359,16 @@
                 return;
             }
 
+            if (!adminToken) {
+                resultEl.textContent = '请先登录';
+                resultEl.style.color = '#e74c3c';
+                return;
+            }
+
             fetch(`${API_BASE}/api/admin/import-photos`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: adminPassword, photos })
+                body: JSON.stringify({ token: adminToken, photos })
             })
             .then(r => r.json())
             .then(data => {
@@ -323,18 +389,24 @@
 
         function autoScan() {
             const resultEl = document.getElementById('scan-result');
+            if (!adminToken) {
+                resultEl.textContent = '请先登录';
+                resultEl.style.color = '#e74c3c';
+                return;
+            }
+            
             resultEl.textContent = '正在扫描 OSS，请稍候...';
             resultEl.style.color = '#4a90d9';
             
             fetch(`${API_BASE}/api/admin/auto-scan`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: adminPassword })
+                body: JSON.stringify({ token: adminToken })
             })
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    resultEl.innerHTML = `<strong>${data.message}</strong><br>分类: ${data.categories.join(', ')}`;
+                    resultEl.innerHTML = `<strong>${escapeHtml(data.message)}</strong><br>分类: ${escapeHtml(data.categories.join(', '))}`;
                     resultEl.style.color = '#27ae60';
                 } else {
                     resultEl.textContent = data.message || '扫描失败';
@@ -348,8 +420,7 @@
         }
 
         function logout() {
-            localStorage.removeItem('adminPassword');
-            adminPassword = '';
+            adminToken = '';
             location.reload();
         }
     </script>

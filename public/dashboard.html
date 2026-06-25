@@ -36,22 +36,25 @@
         const API_BASE = '';
 
         document.addEventListener('DOMContentLoaded', () => {
-            const userName = localStorage.getItem('userName');
-            if (!userName) {
+            const userName = sessionStorage.getItem('userName');
+            const token = sessionStorage.getItem('sessionToken');
+            if (!userName || !token) {
                 window.location.href = 'index.html';
                 return;
             }
             
             document.getElementById('user-info').textContent = `${userName} 的已选照片`;
-            loadMySelection(userName);
+            loadMySelection(token);
         });
 
-        function loadMySelection(name) {
-            fetch(`${API_BASE}/api/users/${encodeURIComponent(name)}/selection`)
+        function loadMySelection(token) {
+            fetch(`${API_BASE}/api/users/selection`, {
+                headers: { 'X-Session-Token': token }
+            })
                 .then(r => r.json())
                 .then(data => {
                     if (data.success && data.photoIds && data.photoIds.length > 0) {
-                        renderMyPhotos(data.photoIds);
+                        renderMyPhotos(data.photoIds, token);
                         if (data.updatedAt) {
                             document.getElementById('update-time').textContent = 
                                 `最后更新: ${new Date(data.updatedAt).toLocaleString('zh-CN')}`;
@@ -63,12 +66,14 @@
                 .catch(() => showEmpty());
         }
 
-        function renderMyPhotos(photoIds) {
+        function renderMyPhotos(photoIds, token) {
             const container = document.getElementById('my-photos');
             container.innerHTML = '';
             
             // 加载所有照片并匹配
-            fetch(`${API_BASE}/api/photos?page=1&limit=10000`)
+            fetch(`${API_BASE}/api/photos?page=1&limit=100`, {
+                headers: { 'X-Session-Token': token }
+            })
                 .then(r => r.json())
                 .then(result => {
                     if (!result.success) return;
@@ -81,23 +86,43 @@
                         
                         const item = document.createElement('div');
                         item.className = 'my-photo-item';
-                        item.innerHTML = `
-                            <img src="${photo.thumbnailUrl}" alt="${photo.displayName}">
-                            <div class="photo-number">${index + 1}</div>
-                        `;
+                        
+                        const img = document.createElement('img');
+                        img.src = photo.thumbnailUrl;
+                        img.alt = photo.displayName || '';
+                        
+                        const num = document.createElement('div');
+                        num.className = 'photo-number';
+                        num.textContent = index + 1;
+                        
+                        item.appendChild(img);
+                        item.appendChild(num);
+                        
                         item.onclick = () => {
                             const modal = document.createElement('div');
                             modal.className = 'modal-overlay';
                             modal.style.zIndex = '200';
-                            modal.innerHTML = `
-                                <div class="modal preview-modal">
-                                    <img src="${photo.fullUrl}" alt="${photo.displayName}">
-                                    <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">✕</button>
-                                </div>
-                            `;
+                            
+                            const modalInner = document.createElement('div');
+                            modalInner.className = 'modal preview-modal';
+                            
+                            const previewImg = document.createElement('img');
+                            previewImg.src = photo.fullUrl;
+                            previewImg.alt = photo.displayName || '';
+                            
+                            const closeBtn = document.createElement('button');
+                            closeBtn.className = 'close-btn';
+                            closeBtn.textContent = '✕';
+                            closeBtn.onclick = () => modal.remove();
+                            
+                            modalInner.appendChild(previewImg);
+                            modalInner.appendChild(closeBtn);
+                            modal.appendChild(modalInner);
+                            
                             modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
                             document.body.appendChild(modal);
                         };
+                        
                         container.appendChild(item);
                     });
                 })

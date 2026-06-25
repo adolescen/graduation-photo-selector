@@ -2,13 +2,20 @@ require('dotenv').config();
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
-const cors = require('cors');
 const OSS = require('ali-oss');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// 安全响应头
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -20,7 +27,7 @@ const ossClient = (() => {
     const accessKeySecret = process.env.OSS_ACCESS_KEY_SECRET || '';
     
     if (!endpoint || !accessKeyId || !accessKeySecret) {
-      console.log('ℹ️ OSS 配置不完整，将使用直接 URL 模式（需确保 bucket 已公开读取）');
+      console.log('ℹ️ OSS 配置不完整，将使用直接 URL 模式');
       return null;
     }
     
@@ -43,10 +50,9 @@ try {
   if (!require('fs').existsSync(dbDir)) {
     require('fs').mkdirSync(dbDir, { recursive: true });
   }
-  // 测试目录是否可写
   require('fs').accessSync(dbDir, require('fs').constants.W_OK);
 } catch (err) {
-  console.warn('⚠️ 无法写入数据库目录，将使用内存数据库（数据仅在服务运行期间保留）:', err.message);
+  console.warn('⚠️ 无法写入数据库目录，使用内存数据库:', err.message);
   dbPath = ':memory:';
 }
 
@@ -57,9 +63,10 @@ db.on('error', (err) => {
 });
 
 if (dbPath === ':memory:') {
-  console.log('📌 使用内存数据库，重启后数据会丢失。请在管理员页面定期导出 CSV 备份。');
+  console.log('📌 使用内存数据库，重启后数据会丢失。请定期导出 CSV 备份。');
 }
 
+// 创建会话表（用于安全认证）
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,9 +74,18 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
+  db.run(`CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    type TEXT NOT NULL DEFAULT 'user',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )`);
+
   db.run(`CREATE TABLE IF NOT EXISTS selections (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL UNIQUE,
     photo_ids TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -92,6 +108,10 @@ function getDeadline() {
 function isDeadlinePassed() {
   const deadline = getDeadline();
   return deadline ? new Date() > deadline : false;
+}
+
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex');
 }
 
 function getOSSUrl(ossKey, isThumbnail = false) {
@@ -121,6 +141,55 @@ function getOSSFullUrl(ossKey) {
   return `${base}/${encodedKey}`;
 }
 
+// HTML 转义函数（防止 XSS）
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+// ====== 认证中间件 ======
+// 检查用户 session token
+function requireAuth(req, res, next) {
+  const token = req.headers['x-session-token'];
+  if (!token) {
+    return res.status(401).json({ success: false, message: '请先登录' });
+  }
+  
+  db.get(
+    `SELECT s.user_id, s.type, u.name 
+     FROM sessions s 
+     JOIN users u ON s.user_id = u.id 
+     WHERE s.token = ? AND (s.expires_at IS NULL OR s.expires_at > datetime('now'))`,
+    [token],
+    (err, row) => {
+      if (err || !row) {
+        return res.status(401).json({ success: false, message: '会话已过期，请重新登录' });
+      }
+      req.userId = row.user_id;
+      req.userName = row.name;
+      next();
+    }
+  );
+}
+
+// 检查管理员 token（支持 Header 或 POST body）
+function requireAdmin(req, res, next) {
+  const token = req.headers['x-admin-token'] || req.body?.token;
+  if (!token) {
+    return res.status(401).json({ success: false, message: '未授权' });
+  }
+  
+  if (token !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ success: false, message: '密码错误' });
+  }
+  next();
+}
+
 // ====== 自动扫描 OSS 根目录 ======
 async function scanOSSRoot() {
   if (!ossClient) {
@@ -131,7 +200,6 @@ async function scanOSSRoot() {
   const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
   const isImage = (key) => imageExts.includes(path.extname(key).toLowerCase());
   
-  // 1. 扫描根目录下的所有子文件夹（作为分类）
   const result = await ossClient.list({
     prefix: rootPrefix,
     delimiter: '/',
@@ -142,7 +210,6 @@ async function scanOSSRoot() {
   
   if (result.prefixes) {
     for (const prefix of result.prefixes) {
-      // 提取分类名：去掉根前缀，去掉末尾 /
       let categoryName = prefix;
       if (rootPrefix && categoryName.startsWith(rootPrefix)) {
         categoryName = categoryName.slice(rootPrefix.length);
@@ -155,7 +222,6 @@ async function scanOSSRoot() {
     }
   }
   
-  // 2. 扫描每个分类下的图片
   const allPhotos = [];
   
   for (const cat of categories) {
@@ -188,7 +254,7 @@ async function scanOSSRoot() {
 
 // ====== API 路由 ======
 
-// 验证班级密码
+// 验证班级密码（仅前端校验，返回 classToken 用于后续认证）
 app.post('/api/auth/verify', (req, res) => {
   const { password } = req.body;
   if (password === process.env.CLASS_PASSWORD) {
@@ -198,58 +264,82 @@ app.post('/api/auth/verify', (req, res) => {
   }
 });
 
-// 注册/登录用户（按姓名）
+// 注册/登录用户（按姓名）— 验证班级密码 + 生成 sessionToken
 app.post('/api/users', (req, res) => {
-  const { name } = req.body;
+  const { name, classPassword } = req.body;
+  
+  if (!classPassword || classPassword !== process.env.CLASS_PASSWORD) {
+    return res.status(401).json({ success: false, message: '班级密码错误' });
+  }
+  
   if (!name || !name.trim()) {
     return res.status(400).json({ success: false, message: '姓名不能为空' });
   }
-
+  
   const trimmed = name.trim();
+  if (trimmed.length > 20) {
+    return res.status(400).json({ success: false, message: '姓名不能超过20个字符' });
+  }
   
   db.get('SELECT id FROM users WHERE name = ?', [trimmed], (err, row) => {
     if (err) return res.status(500).json({ success: false, message: '数据库错误' });
     
     if (row) {
-      return res.json({ success: true, userId: row.id, name: trimmed, exists: true });
+      // 已存在用户，生成新 sessionToken
+      const token = generateToken();
+      db.run(
+        'INSERT INTO sessions (token, user_id, type) VALUES (?, ?, ?)',
+        [token, row.id, 'user'],
+        (err) => {
+          if (err) return res.status(500).json({ success: false, message: '创建会话失败' });
+          res.json({ success: true, token, userId: row.id, name: trimmed, exists: true });
+        }
+      );
+    } else {
+      // 新建用户
+      db.run('INSERT INTO users (name) VALUES (?)', [trimmed], function(err) {
+        if (err) return res.status(500).json({ success: false, message: '创建用户失败' });
+        const userId = this.lastID;
+        const token = generateToken();
+        db.run(
+          'INSERT INTO sessions (token, user_id, type) VALUES (?, ?, ?)',
+          [token, userId, 'user'],
+          (err) => {
+            if (err) return res.status(500).json({ success: false, message: '创建会话失败' });
+            res.json({ success: true, token, userId, name: trimmed, exists: false });
+          }
+        );
+      });
     }
-    
-    db.run('INSERT INTO users (name) VALUES (?)', [trimmed], function(err) {
-      if (err) return res.status(500).json({ success: false, message: '创建用户失败' });
-      res.json({ success: true, userId: this.lastID, name: trimmed, exists: false });
-    });
   });
 });
 
-// 获取用户选择
-app.get('/api/users/:name/selection', (req, res) => {
-  const { name } = req.params;
-  
+// 获取用户选择（需要认证）
+app.get('/api/users/selection', requireAuth, (req, res) => {
   db.get(
-    `SELECT s.photo_ids, s.updated_at, u.id as user_id
-     FROM users u
-     LEFT JOIN selections s ON u.id = s.user_id
-     WHERE u.name = ?`,
-    [name],
+    `SELECT s.photo_ids, s.updated_at 
+     FROM selections s 
+     WHERE s.user_id = ?`,
+    [req.userId],
     (err, row) => {
       if (err) return res.status(500).json({ success: false, message: '数据库错误' });
-      if (!row) return res.status(404).json({ success: false, message: '用户不存在' });
       
       res.json({
         success: true,
-        userId: row.user_id,
-        photoIds: row.photo_ids ? JSON.parse(row.photo_ids) : [],
-        updatedAt: row.updated_at
+        userId: req.userId,
+        name: req.userName,
+        photoIds: row && row.photo_ids ? JSON.parse(row.photo_ids) : [],
+        updatedAt: row ? row.updated_at : null
       });
     }
   );
 });
 
-// 提交/更新选择
-app.post('/api/selections', (req, res) => {
-  const { userId, photoIds } = req.body;
+// 提交/更新选择（需要认证，从 session 获取 userId）
+app.post('/api/selections', requireAuth, (req, res) => {
+  const { photoIds } = req.body;
   
-  if (!userId || !Array.isArray(photoIds)) {
+  if (!Array.isArray(photoIds)) {
     return res.status(400).json({ success: false, message: '参数错误' });
   }
   
@@ -257,41 +347,75 @@ app.post('/api/selections', (req, res) => {
     return res.status(400).json({ success: false, message: '必须选择恰好8张照片' });
   }
   
-  if (isDeadlinePassed()) {
-    return res.status(403).json({ success: false, message: '已超过截止时间，无法修改' });
+  // 验证 photoIds：唯一、正整数、存在性
+  const uniqueIds = new Set(photoIds);
+  if (uniqueIds.size !== 8) {
+    return res.status(400).json({ success: false, message: '选中的照片不能重复' });
   }
   
-  const photoIdsJson = JSON.stringify(photoIds);
-  
-  db.get('SELECT id FROM selections WHERE user_id = ?', [userId], (err, row) => {
-    if (err) return res.status(500).json({ success: false, message: '数据库错误' });
-    
-    if (row) {
-      db.run(
-        'UPDATE selections SET photo_ids = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
-        [photoIdsJson, userId],
-        (err) => {
-          if (err) return res.status(500).json({ success: false, message: '更新失败' });
-          res.json({ success: true, message: '选择已更新' });
-        }
-      );
-    } else {
-      db.run(
-        'INSERT INTO selections (user_id, photo_ids) VALUES (?, ?)',
-        [userId, photoIdsJson],
-        (err) => {
-          if (err) return res.status(500).json({ success: false, message: '提交失败' });
-          res.json({ success: true, message: '选择已提交' });
-        }
-      );
+  // 验证所有 ID 是正整数
+  for (const id of photoIds) {
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ success: false, message: '照片ID格式错误' });
     }
-  });
+  }
+  
+  // 验证所有 ID 在数据库中存在
+  db.all(
+    'SELECT id FROM photos WHERE id IN (' + photoIds.map(() => '?').join(',') + ')',
+    photoIds,
+    (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: '数据库错误' });
+      
+      if (rows.length !== 8) {
+        return res.status(400).json({ success: false, message: '部分照片不存在，请刷新后重试' });
+      }
+      
+      if (isDeadlinePassed()) {
+        return res.status(403).json({ success: false, message: '已超过截止时间，无法修改' });
+      }
+      
+      const photoIdsJson = JSON.stringify(photoIds);
+      
+      db.get('SELECT id FROM selections WHERE user_id = ?', [req.userId], (err, row) => {
+        if (err) return res.status(500).json({ success: false, message: '数据库错误' });
+        
+        if (row) {
+          db.run(
+            'UPDATE selections SET photo_ids = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+            [photoIdsJson, req.userId],
+            (err) => {
+              if (err) return res.status(500).json({ success: false, message: '更新失败' });
+              res.json({ success: true, message: '选择已更新' });
+            }
+          );
+        } else {
+          db.run(
+            'INSERT INTO selections (user_id, photo_ids) VALUES (?, ?)',
+            [req.userId, photoIdsJson],
+            (err) => {
+              if (err) return res.status(500).json({ success: false, message: '提交失败' });
+              res.json({ success: true, message: '选择已提交' });
+            }
+          );
+        }
+      });
+    }
+  );
 });
 
-// 获取照片列表（分页、分类）
-app.get('/api/photos', (req, res) => {
-  const { category = 'all', page = 1, limit = 30 } = req.query;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+// 获取照片列表（需要认证，限制分页）
+app.get('/api/photos', requireAuth, (req, res) => {
+  let { category = 'all', page = 1, limit = 30 } = req.query;
+  
+  page = parseInt(page);
+  limit = parseInt(limit);
+  
+  if (isNaN(page) || page < 1) page = 1;
+  if (isNaN(limit) || limit < 1) limit = 30;
+  if (limit > 100) limit = 100;
+  
+  const offset = (page - 1) * limit;
   
   let sql = 'SELECT id, oss_key, category, display_name FROM photos';
   let countSql = 'SELECT COUNT(*) as total FROM photos';
@@ -306,7 +430,7 @@ app.get('/api/photos', (req, res) => {
   }
   
   sql += ' ORDER BY sort_order, id LIMIT ? OFFSET ?';
-  params.push(parseInt(limit), offset);
+  params.push(limit, offset);
   
   db.get(countSql, countParams, (err, countRow) => {
     if (err) return res.status(500).json({ success: false, message: '数据库错误' });
@@ -318,7 +442,7 @@ app.get('/api/photos', (req, res) => {
         id: row.id,
         ossKey: row.oss_key,
         category: row.category,
-        displayName: row.display_name || row.oss_key.split('/').pop(),
+        displayName: escapeHtml(row.display_name || row.oss_key.split('/').pop()),
         thumbnailUrl: getOSSUrl(row.oss_key, true),
         fullUrl: getOSSFullUrl(row.oss_key)
       }));
@@ -327,22 +451,22 @@ app.get('/api/photos', (req, res) => {
         success: true,
         photos,
         total: countRow.total,
-        page: parseInt(page),
-        totalPages: Math.ceil(countRow.total / parseInt(limit))
+        page: page,
+        totalPages: Math.ceil(countRow.total / limit)
       });
     });
   });
 });
 
-// 获取分类列表
-app.get('/api/categories', (req, res) => {
+// 获取分类列表（需要认证）
+app.get('/api/categories', requireAuth, (req, res) => {
   db.all('SELECT DISTINCT category FROM photos ORDER BY category', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, message: '数据库错误' });
-    res.json({ success: true, categories: rows.map(r => r.category) });
+    res.json({ success: true, categories: rows.map(r => escapeHtml(r.category)) });
   });
 });
 
-// 获取系统设置
+// 获取系统设置（公开，无敏感信息）
 app.get('/api/settings', (req, res) => {
   res.json({
     success: true,
@@ -351,23 +475,27 @@ app.get('/api/settings', (req, res) => {
   });
 });
 
-// 管理员登录
+// 管理员登录 — 返回短期 token（不建议长期存储）
 app.post('/api/admin/login', (req, res) => {
   const { password } = req.body;
   if (password === process.env.ADMIN_PASSWORD) {
-    res.json({ success: true });
+    const token = generateToken();
+    // 存储管理员 token（30 分钟有效）
+    db.run(
+      'INSERT INTO sessions (token, user_id, type, expires_at) VALUES (?, ?, ?, datetime("now", "+30 minutes"))',
+      [token, 0, 'admin'],
+      (err) => {
+        if (err) return res.status(500).json({ success: false, message: '创建会话失败' });
+        res.json({ success: true, token });
+      }
+    );
   } else {
     res.status(401).json({ success: false, message: '密码错误' });
   }
 });
 
-// 管理员统计
-app.get('/api/admin/stats', (req, res) => {
-  const { password } = req.query;
-  if (password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ success: false, message: '未授权' });
-  }
-  
+// 管理员统计（POST 方式，token 在 body 中）
+app.post('/api/admin/stats', requireAdmin, (req, res) => {
   db.all(
     `SELECT u.id, u.name, s.photo_ids, s.updated_at
      FROM users u
@@ -385,7 +513,7 @@ app.get('/api/admin/stats', (req, res) => {
           photoStats[p.id] = {
             id: p.id,
             ossKey: p.oss_key,
-            displayName: p.display_name || p.oss_key.split('/').pop(),
+            displayName: escapeHtml(p.display_name || p.oss_key.split('/').pop()),
             count: 0,
             selectedBy: []
           };
@@ -396,12 +524,12 @@ app.get('/api/admin/stats', (req, res) => {
           photoIds.forEach(pid => {
             if (photoStats[pid]) {
               photoStats[pid].count++;
-              photoStats[pid].selectedBy.push(u.name);
+              photoStats[pid].selectedBy.push(escapeHtml(u.name));
             }
           });
           return {
             id: u.id,
-            name: u.name,
+            name: escapeHtml(u.name),
             photoIds: photoIds,
             photoCount: photoIds.length,
             updatedAt: u.updated_at
@@ -422,13 +550,8 @@ app.get('/api/admin/stats', (req, res) => {
   );
 });
 
-// 导出 CSV
-app.get('/api/admin/export', (req, res) => {
-  const { password } = req.query;
-  if (password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ success: false, message: '未授权' });
-  }
-  
+// 导出 CSV（POST 方式）
+app.post('/api/admin/export', requireAdmin, (req, res) => {
   db.all(
     `SELECT u.name, s.photo_ids, s.updated_at
      FROM users u
@@ -441,7 +564,7 @@ app.get('/api/admin/export', (req, res) => {
       let csv = '\uFEFF姓名,已选照片数量,照片ID列表,更新时间\n';
       rows.forEach(row => {
         const photoIds = row.photo_ids ? JSON.parse(row.photo_ids) : [];
-        csv += `${row.name},${photoIds.length},"${photoIds.join(',')}",${row.updated_at || ''}\n`;
+        csv += `${escapeHtml(row.name)},${photoIds.length},"${photoIds.join(',')}",${row.updated_at || ''}\n`;
       });
       
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -452,11 +575,8 @@ app.get('/api/admin/export', (req, res) => {
 });
 
 // 批量导入照片（管理员）
-app.post('/api/admin/import-photos', (req, res) => {
-  const { password, photos } = req.body;
-  if (password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ success: false, message: '未授权' });
-  }
+app.post('/api/admin/import-photos', requireAdmin, (req, res) => {
+  const { photos } = req.body;
   
   if (!Array.isArray(photos) || photos.length === 0) {
     return res.status(400).json({ success: false, message: '照片列表为空' });
@@ -478,12 +598,7 @@ app.post('/api/admin/import-photos', (req, res) => {
 });
 
 // 自动扫描并导入照片（管理员）
-app.post('/api/admin/auto-scan', async (req, res) => {
-  const { password } = req.body;
-  if (password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ success: false, message: '未授权' });
-  }
-  
+app.post('/api/admin/auto-scan', requireAdmin, async (req, res) => {
   if (!ossClient) {
     return res.status(500).json({ success: false, message: 'OSS 客户端未配置' });
   }
@@ -520,7 +635,6 @@ app.post('/api/admin/auto-scan', async (req, res) => {
 });
 
 // ====== 启动 ======
-// 启动服务器
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`毕业照片选择系统已启动: http://localhost:${PORT}`);
   console.log(`截止时间: ${process.env.DEADLINE || '未设置'}`);
