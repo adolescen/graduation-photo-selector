@@ -25,18 +25,32 @@ const ossClient = (() => {
     const endpoint = process.env.OSS_ENDPOINT || '';
     const accessKeyId = process.env.OSS_ACCESS_KEY_ID || '';
     const accessKeySecret = process.env.OSS_ACCESS_KEY_SECRET || '';
+    const bucket = process.env.OSS_BUCKET || '';
+    const region = process.env.OSS_REGION || '';
     
     if (!endpoint || !accessKeyId || !accessKeySecret) {
       console.log('ℹ️ OSS 配置不完整，将使用直接 URL 模式');
       return null;
     }
     
-    return new OSS({
-      endpoint: endpoint,
-      accessKeyId: accessKeyId,
-      accessKeySecret: accessKeySecret,
-      bucket: process.env.OSS_BUCKET,
-    });
+    const isAccessPoint = endpoint.includes('oss-accesspoint');
+    
+    if (isAccessPoint) {
+      // AccessPoint 端点已包含 bucket 映射，不需要显式指定 bucket
+      return new OSS({
+        endpoint: endpoint,
+        accessKeyId: accessKeyId,
+        accessKeySecret: accessKeySecret,
+      });
+    } else {
+      // 普通 endpoint 或 region 方式
+      return new OSS({
+        region: region,
+        accessKeyId: accessKeyId,
+        accessKeySecret: accessKeySecret,
+        bucket: bucket,
+      });
+    }
   } catch (err) {
     console.error('⚠️ OSS 客户端初始化失败:', err.message);
     return null;
