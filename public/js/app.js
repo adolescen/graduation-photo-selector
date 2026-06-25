@@ -6,8 +6,59 @@ let currentPage = 1;
 let hasMorePhotos = true;
 let isLoadingPhotos = false;
 let selectedPhotos = new Set();
+let pendingPhotoIds = []; // 弹窗中临时选择
 let photoCache = {};
 let isDeadlinePassed = false;
+
+// 缓存辅助函数
+const CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24小时
+
+function getCategoryCacheKey(category, page) {
+    return `photo_cache_${category}_${page}`;
+}
+
+function saveCategoryCache(category, page, data) {
+    const key = getCategoryCacheKey(category, page);
+    const cache = {
+        photos: data.photos,
+        total: data.total,
+        totalPages: data.totalPages,
+        timestamp: Date.now()
+    };
+    try {
+        sessionStorage.setItem(key, JSON.stringify(cache));
+    } catch (e) {
+        // 缓存空间满，忽略
+    }
+}
+
+function loadCategoryCache(category, page) {
+    const key = getCategoryCacheKey(category, page);
+    const data = sessionStorage.getItem(key);
+    if (!data) return null;
+    try {
+        const cache = JSON.parse(data);
+        if (Date.now() - cache.timestamp > CACHE_MAX_AGE) {
+            sessionStorage.removeItem(key);
+            return null;
+        }
+        // 恢复缓存到 photoCache
+        cache.photos.forEach(p => {
+            photoCache[p.id] = p;
+        });
+        return cache;
+    } catch (e) {
+        return null;
+    }
+}
+
+function clearAllPhotoCache() {
+    Object.keys(sessionStorage).forEach(key => {
+        if (key.startsWith('photo_cache_')) {
+            sessionStorage.removeItem(key);
+        }
+    });
+}
 
 // 安全辅助函数：HTML 转义
 function escapeHtml(str) {
@@ -282,11 +333,23 @@ function fetchPhotoPage(page, isFirstLoad) {
     const token = sessionStorage.getItem('sessionToken');
     if (!token) return;
     
+    // 先尝试加载缓存（显示旧数据）
+    const cache = loadCategoryCache(currentCategory, page);
+    if (cache) {
+        if (isFirstLoad) {
+            renderPhotos(cache.photos, false);
+        } else {
+            renderPhotos(cache.photos, true);
+        }
+        hasMorePhotos = page < cache.totalPages;
+        updateLoadMoreState();
+    }
+    
     isLoadingPhotos = true;
     const loading = document.getElementById('loading');
     const loadMoreEl = document.getElementById('load-more');
     
-    if (isFirstLoad && loading) loading.classList.add('active');
+    if (isFirstLoad && loading && !cache) loading.classList.add('active');
     if (!isFirstLoad && loadMoreEl) loadMoreEl.classList.add('active');
     
     fetch(`${API_BASE}/api/photos?category=${currentCategory}&page=${page}&limit=50`, {
@@ -299,12 +362,14 @@ function fetchPhotoPage(page, isFirstLoad) {
             if (loadMoreEl) loadMoreEl.classList.remove('active');
             
             if (data.success) {
-                renderPhotos(data.photos, !isFirstLoad);
-                hasMorePhotos = page < data.totalPages;
-                
-                if (!hasMorePhotos && loadMoreEl) {
-                    loadMoreEl.classList.add('no-more');
+                // 保存缓存
+                saveCategoryCache(currentCategory, page, data);
+                // 如果有缓存，只在数据变化时更新（避免闪烁）
+                if (!cache) {
+                    renderPhotos(data.photos, !isFirstLoad);
                 }
+                hasMorePhotos = page < data.totalPages;
+                updateLoadMoreState();
             }
         })
         .catch(() => {
@@ -312,6 +377,17 @@ function fetchPhotoPage(page, isFirstLoad) {
             if (loading) loading.classList.remove('active');
             if (loadMoreEl) loadMoreEl.classList.remove('active');
         });
+}
+
+function updateLoadMoreState() {
+    const loadMoreEl = document.getElementById('load-more');
+    if (!loadMoreEl) return;
+    
+    if (!hasMorePhotos) {
+        loadMoreEl.classList.add('no-more');
+    } else {
+        loadMoreEl.classList.remove('no-more');
+    }
 }
 
 function renderPhotos(photos, append = false) {
@@ -462,39 +538,93 @@ function filterCategory(category) {
     loadPhotos();
 }
 
-// ====== 提交（提交时自动取前8张） ======
+// ====== 提交（弹窗中可取消多余照片） ======
 function submitSelection() {
     if (selectedPhotos.size < 8) {
         alert('需要至少选择8张照片才能提交');
         return;
     }
     
-    const photoIds = Array.from(selectedPhotos);
+    // 初始化弹窗中的临时选择
+    pendingPhotoIds = Array.from(selectedPhotos);
+    renderConfirmPhotos();
+    document.getElementById('confirm-modal').classList.remove('hidden');
+}
+
+function renderConfirmPhotos() {
     const confirmPhotos = document.getElementById('confirm-photos');
+    const confirmTitle = document.getElementById('confirm-title');
+    const confirmDesc = document.getElementById('confirm-desc');
+    const confirmCount = document.getElementById('confirm-count');
+    const submitBtn = document.getElementById('confirm-submit-btn');
+    
     confirmPhotos.innerHTML = '';
+    const count = pendingPhotoIds.length;
     
-    // 只显示前8张（如果超过8张，提示用户）
-    const displayIds = photoIds.slice(0, 8);
-    
-    displayIds.forEach(id => {
-        const photo = photoCache[id];
-        if (photo) {
-            const img = document.createElement('img');
-            img.src = photo.thumbnailUrl;
-            img.alt = photo.displayName;
-            confirmPhotos.appendChild(img);
-        }
-    });
-    
-    // 更新弹窗文字
-    const modalTitle = document.querySelector('#confirm-modal h3');
-    if (photoIds.length > 8) {
-        modalTitle.innerHTML = `确认提交 <small style="color:#e74c3c">（您已选择 ${photoIds.length} 张，将自动取前8张）</small>`;
+    // 更新标题
+    if (count > 8) {
+        confirmTitle.textContent = '请保留恰好8张照片';
+        confirmDesc.innerHTML = `您已选择 <strong>${count}</strong> 张，点击照片可取消多余的选择。`;
+    } else if (count === 8) {
+        confirmTitle.textContent = '确认提交';
+        confirmDesc.textContent = '以下8张照片将被提交：';
     } else {
-        modalTitle.textContent = '确认提交';
+        confirmTitle.textContent = '照片不足';
+        confirmDesc.textContent = `当前仅 ${count} 张，需要恰好8张。`;
     }
     
-    document.getElementById('confirm-modal').classList.remove('hidden');
+    // 渲染每张照片（可点击取消）
+    pendingPhotoIds.forEach(id => {
+        const photo = photoCache[id];
+        if (!photo) return;
+        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'confirm-photo-item';
+        wrapper.dataset.id = id;
+        
+        const img = document.createElement('img');
+        img.src = photo.thumbnailUrl;
+        img.alt = photo.displayName || '';
+        
+        // 取消标记
+        const removeMark = document.createElement('div');
+        removeMark.className = 'remove-mark';
+        removeMark.textContent = '✕';
+        
+        wrapper.appendChild(img);
+        wrapper.appendChild(removeMark);
+        
+        // 点击取消
+        wrapper.onclick = () => {
+            const idx = pendingPhotoIds.indexOf(id);
+            if (idx > -1) {
+                pendingPhotoIds.splice(idx, 1);
+                wrapper.remove();
+                updateConfirmState();
+            }
+        };
+        
+        confirmPhotos.appendChild(wrapper);
+    });
+    
+    updateConfirmState();
+}
+
+function updateConfirmState() {
+    const count = pendingPhotoIds.length;
+    const confirmCount = document.getElementById('confirm-count');
+    const submitBtn = document.getElementById('confirm-submit-btn');
+    
+    confirmCount.textContent = `当前 ${count} / 8 张`;
+    confirmCount.style.color = count === 8 ? '#27ae60' : '#e74c3c';
+    
+    if (count === 8) {
+        submitBtn.textContent = '确认提交';
+        submitBtn.disabled = false;
+    } else {
+        submitBtn.textContent = count > 8 ? `请取消 ${count - 8} 张` : `还需 ${8 - count} 张`;
+        submitBtn.disabled = true;
+    }
 }
 
 function closeModal() {
@@ -502,23 +632,28 @@ function closeModal() {
 }
 
 function confirmSubmit() {
+    if (pendingPhotoIds.length !== 8) {
+        alert('必须恰好选择8张照片');
+        return;
+    }
+    
     const token = sessionStorage.getItem('sessionToken');
     if (!token) {
         alert('会话已过期，请重新登录');
         return;
     }
     
-    // 只提交前8张
-    const photoIds = Array.from(selectedPhotos).slice(0, 8);
-    
     fetch(`${API_BASE}/api/selections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Session-Token': token },
-        body: JSON.stringify({ photoIds })
+        body: JSON.stringify({ photoIds: pendingPhotoIds })
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
+            // 同步主选择状态
+            selectedPhotos = new Set(pendingPhotoIds);
+            updateSelectionUI();
             alert('提交成功！你可以在"我的选择"中查看');
             closeModal();
         } else {

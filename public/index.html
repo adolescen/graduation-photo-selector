@@ -91,12 +91,13 @@
     <!-- 提交确认弹窗 -->
     <div class="modal-overlay hidden" id="confirm-modal">
         <div class="modal">
-            <h3>确认提交</h3>
-            <p>你已经选择了以下 <strong>8</strong> 张照片：</p>
+            <h3 id="confirm-title">确认提交</h3>
+            <p id="confirm-desc">你已经选择了以下照片：</p>
             <div class="confirm-photos" id="confirm-photos"></div>
+            <div class="confirm-count" id="confirm-count"></div>
             <div class="modal-actions">
                 <button class="btn-outline" onclick="closeModal()">再改改</button>
-                <button class="btn-primary" onclick="confirmSubmit()">确认提交</button>
+                <button class="btn-primary" id="confirm-submit-btn" onclick="confirmSubmit()" disabled>确认提交</button>
             </div>
         </div>
     </div>
