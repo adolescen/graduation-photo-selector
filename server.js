@@ -35,6 +35,7 @@ const ossClient = (() => {
       endpoint: endpoint,
       accessKeyId: accessKeyId,
       accessKeySecret: accessKeySecret,
+      bucket: process.env.OSS_BUCKET,
     });
   } catch (err) {
     console.error('⚠️ OSS 客户端初始化失败:', err.message);
