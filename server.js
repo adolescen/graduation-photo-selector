@@ -19,6 +19,16 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// 显式路由：根路径访问首页
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// 显式路由：/admin 访问管理页（不加 .html）
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
 // ====== 阿里云 OSS 客户端 ======
 const ossClient = (() => {
   try {
