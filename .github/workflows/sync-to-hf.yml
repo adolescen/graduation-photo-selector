@@ -1,0 +1,35 @@
+name: Sync to Hugging Face Space
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 使用 Hugging Face Trusted Publishers 通过 OIDC 获取临时 token
+      # 如果此 action 路径不可用，可改用 HF_TOKEN 方式：
+      # 1. 在 https://huggingface.co/settings/tokens 创建 Write 权限 token
+      # 2. 在 GitHub 仓库 Settings -> Secrets -> Actions 添加 HF_TOKEN
+      # 3. 把下面两步替换为直接使用 secrets.HF_TOKEN
+      - name: Get HF Token from Trusted Publisher
+        uses: huggingface/huggingface.js/actions/get-token-from-trusted-publisher@main
+        id: get_token
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ steps.get_token.outputs.token }}
+        run: |
+          git remote add hf https://huggingface.co/spaces/adolescen/graduation-photo-selector.git
+          git push hf master
