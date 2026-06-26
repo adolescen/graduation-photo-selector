@@ -695,6 +695,116 @@ function confirmSubmit() {
     });
 }
 
+let faceSearchPhotos = []; // 人脸搜索结果
+
+function openFaceSearchModal() {
+    document.getElementById('face-search-modal').classList.remove('hidden');
+    document.getElementById('face-search-upload').classList.remove('hidden');
+    document.getElementById('face-search-loading').classList.add('hidden');
+    document.getElementById('face-search-result').classList.add('hidden');
+    document.getElementById('face-search-input').value = '';
+    faceSearchPhotos = [];
+}
+
+function closeFaceSearchModal() {
+    document.getElementById('face-search-modal').classList.add('hidden');
+}
+
+function submitFaceSearch() {
+    const input = document.getElementById('face-search-input');
+    const file = input.files[0];
+    if (!file) return;
+
+    const token = sessionStorage.getItem('sessionToken');
+    if (!token) {
+        alert('会话已过期，请重新登录');
+        return;
+    }
+
+    document.getElementById('face-search-upload').classList.add('hidden');
+    document.getElementById('face-search-loading').classList.remove('hidden');
+    document.getElementById('face-search-result').classList.add('hidden');
+
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    fetch(`${API_BASE}/api/face/search`, {
+        method: 'POST',
+        headers: { 'X-Session-Token': token },
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('face-search-loading').classList.add('hidden');
+        document.getElementById('face-search-result').classList.remove('hidden');
+
+        const statusEl = document.getElementById('face-search-status');
+        const container = document.getElementById('face-search-photos');
+        container.innerHTML = '';
+        faceSearchPhotos = [];
+
+        if (data.success && data.found && data.photos && data.photos.length > 0) {
+            statusEl.textContent = `找到 ${data.photos.length} 张相似照片`;
+            faceSearchPhotos = data.photos;
+            renderFaceSearchPhotos(data.photos, container);
+        } else {
+            statusEl.textContent = '未找到相似照片，建议回到全部照片浏览';
+        }
+    })
+    .catch(() => {
+        document.getElementById('face-search-loading').classList.add('hidden');
+        document.getElementById('face-search-result').classList.remove('hidden');
+        document.getElementById('face-search-status').textContent = '搜索失败，请稍后重试';
+    });
+}
+
+function renderFaceSearchPhotos(photos, container) {
+    photos.forEach(photo => {
+        photoCache[photo.id] = photo;
+        const isSelected = selectedPhotos.has(photo.id);
+
+        const item = document.createElement('div');
+        item.className = `photo-item face-search-item ${isSelected ? 'selected' : ''}`;
+        item.dataset.id = photo.id;
+        item.onclick = () => toggleFaceSearchPhoto(photo.id, item);
+
+        item.innerHTML = `
+            <img src="${photo.thumbnailUrl}" alt="${photo.displayName}" loading="lazy">
+            ${isSelected ? '<div class="order-badge">✓</div>' : ''}
+        `;
+
+        container.appendChild(item);
+    });
+}
+
+function toggleFaceSearchPhoto(photoId, item) {
+    if (selectedPhotos.has(photoId)) {
+        selectedPhotos.delete(photoId);
+    } else {
+        selectedPhotos.add(photoId);
+    }
+    updateSelectionUI();
+
+    item.classList.toggle('selected', selectedPhotos.has(photoId));
+    let badge = item.querySelector('.order-badge');
+    if (selectedPhotos.has(photoId)) {
+        if (!badge) {
+            badge = document.createElement('div');
+            badge.className = 'order-badge';
+            item.appendChild(badge);
+        }
+        badge.textContent = '✓';
+    } else if (badge) {
+        badge.remove();
+    }
+}
+
+function useFaceSearchResult() {
+    closeFaceSearchModal();
+    // 滚动到照片网格，让用户看到已选状态
+    document.getElementById('photo-grid').scrollIntoView({ behavior: 'smooth' });
+}
+
 // ====== 预览 ======
 function previewPhoto(url, title) {
     openPhotoViewer(url, title);

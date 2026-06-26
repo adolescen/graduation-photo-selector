@@ -5,9 +5,28 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const OSS = require('ali-oss');
 const crypto = require('crypto');
+const multer = require('multer');
+
+const faceClient = require('./lib/face-client');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// 文件上传配置：仅内存存储，不持久化参考照片
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 最大 5MB
+    files: 1
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'image/jpeg' || file.mimetype === 'image/png' || file.mimetype === 'image/webp') {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 jpg/png/webp 图片'));
+    }
+  }
+});
 
 // 选择数量配置（默认8张；显式设置为0表示暂停选择）
 const parsedSelectionCount = parseInt(process.env.SELECTION_COUNT, 10);
@@ -135,7 +154,25 @@ db.serialize(() => {
     oss_key TEXT UNIQUE NOT NULL,
     category TEXT NOT NULL,
     display_name TEXT,
-    sort_order INTEGER DEFAULT 0
+    sort_order INTEGER DEFAULT 0,
+    face_group_id INTEGER
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS face_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    aliyun_entity_id TEXT UNIQUE NOT NULL,
+    aliyun_face_id TEXT,
+    representative_photo_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS face_search_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    result_group_id INTEGER,
+    confidence REAL,
+    searched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
   )`);
 });
 
@@ -454,38 +491,51 @@ app.post('/api/selections', requireAuth, (req, res) => {
 
 // 获取照片列表（需要认证，限制分页）
 app.get('/api/photos', requireAuth, (req, res) => {
-  let { category = 'all', page = 1, limit = 50 } = req.query;
-  
+  let { category = 'all', page = 1, limit = 50, faceGroupId = null } = req.query;
+
   page = parseInt(page);
   limit = parseInt(limit);
-  
+  if (faceGroupId !== null) faceGroupId = parseInt(faceGroupId);
+
   if (isNaN(page) || page < 1) page = 1;
   if (isNaN(limit) || limit < 1) limit = 50;
   if (limit > 100) limit = 100;
-  
+
   const offset = (page - 1) * limit;
-  
+
   let sql = 'SELECT id, oss_key, category, display_name FROM photos';
   let countSql = 'SELECT COUNT(*) as total FROM photos';
   const params = [];
   const countParams = [];
-  
+  const conditions = [];
+
   if (category !== 'all') {
-    sql += ' WHERE category = ?';
-    countSql += ' WHERE category = ?';
+    conditions.push('category = ?');
     params.push(category);
     countParams.push(category);
   }
-  
+
+  if (!isNaN(faceGroupId) && faceGroupId > 0) {
+    conditions.push('face_group_id = ?');
+    params.push(faceGroupId);
+    countParams.push(faceGroupId);
+  }
+
+  if (conditions.length > 0) {
+    const whereClause = ' WHERE ' + conditions.join(' AND ');
+    sql += whereClause;
+    countSql += whereClause;
+  }
+
   sql += ' ORDER BY sort_order, id LIMIT ? OFFSET ?';
   params.push(limit, offset);
-  
+
   db.get(countSql, countParams, (err, countRow) => {
     if (err) return res.status(500).json({ success: false, message: '数据库错误' });
-    
+
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: '数据库错误' });
-      
+
       const photos = rows.map(row => ({
         id: row.id,
         ossKey: row.oss_key,
@@ -494,7 +544,7 @@ app.get('/api/photos', requireAuth, (req, res) => {
         thumbnailUrl: getOSSUrl(row.oss_key, true),
         fullUrl: getOSSFullUrl(row.oss_key)
       }));
-      
+
       res.json({
         success: true,
         photos,
@@ -707,6 +757,141 @@ app.post('/api/admin/auto-scan', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('扫描失败:', err);
     res.status(500).json({ success: false, message: '扫描失败: ' + err.message });
+  }
+});
+
+// 人脸聚类（管理员）
+app.post('/api/admin/face/cluster', requireAdmin, async (req, res) => {
+  if (!faceClient.isFaceEnabled()) {
+    return res.status(503).json({ success: false, message: '人脸识别未启用或未配置' });
+  }
+
+  try {
+    await faceClient.clearFaceDatabase();
+    db.run('DELETE FROM face_groups');
+    db.run('UPDATE photos SET face_group_id = NULL');
+
+    db.all('SELECT id, oss_key FROM photos ORDER BY id', [], async (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: '数据库错误' });
+
+      let processed = 0;
+      let grouped = 0;
+      const errors = [];
+
+      for (const row of rows) {
+        try {
+          const result = await faceClient.detectAndRegisterFace(row.oss_key);
+          if (result) {
+            db.run(
+              'INSERT INTO face_groups (aliyun_entity_id, aliyun_face_id, representative_photo_id) VALUES (?, ?, ?)',
+              [result.entityId, result.faceId, row.id],
+              function (err) {
+                if (!err) {
+                  db.run('UPDATE photos SET face_group_id = ? WHERE id = ?', [this.lastID, row.id]);
+                }
+              }
+            );
+            grouped++;
+          }
+          processed++;
+        } catch (e) {
+          errors.push({ photoId: row.id, message: e.message });
+          processed++;
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `人脸聚类完成：处理 ${processed} 张，成功分组 ${grouped} 张`,
+        processed,
+        grouped,
+        errors: errors.slice(0, 20)
+      });
+    });
+  } catch (err) {
+    console.error('人脸聚类失败:', err);
+    res.status(500).json({ success: false, message: '人脸聚类失败: ' + err.message });
+  }
+});
+
+// 清理人脸库（管理员）
+app.post('/api/admin/face/clear', requireAdmin, async (req, res) => {
+  if (!faceClient.isFaceEnabled()) {
+    return res.status(503).json({ success: false, message: '人脸识别未启用或未配置' });
+  }
+
+  try {
+    const deletedCount = await faceClient.clearFaceDatabase();
+    db.run('DELETE FROM face_groups');
+    db.run('UPDATE photos SET face_group_id = NULL');
+    db.run('DELETE FROM face_search_logs');
+
+    res.json({ success: true, message: `已清理 ${deletedCount} 个人脸组` });
+  } catch (err) {
+    console.error('清理人脸库失败:', err);
+    res.status(500).json({ success: false, message: '清理人脸库失败: ' + err.message });
+  }
+});
+
+// 按人脸搜索照片（用户）
+app.post('/api/face/search', requireAuth, upload.single('photo'), async (req, res) => {
+  if (!faceClient.isFaceEnabled()) {
+    return res.status(503).json({ success: false, message: '人脸识别未启用或未配置' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: '请上传照片' });
+  }
+
+  try {
+    const result = await faceClient.searchFace(req.file.buffer);
+
+    if (!result) {
+      return res.json({ success: true, found: false, photos: [] });
+    }
+
+    db.get(
+      'SELECT id FROM face_groups WHERE aliyun_entity_id = ?',
+      [result.entityId],
+      (err, groupRow) => {
+        if (err || !groupRow) {
+          return res.json({ success: true, found: false, photos: [] });
+        }
+
+        db.run(
+          'INSERT INTO face_search_logs (user_id, result_group_id, confidence) VALUES (?, ?, ?)',
+          [req.userId, groupRow.id, result.confidence]
+        );
+
+        db.all(
+          'SELECT id, oss_key, category, display_name FROM photos WHERE face_group_id = ? ORDER BY sort_order, id',
+          [groupRow.id],
+          (err, rows) => {
+            if (err) return res.status(500).json({ success: false, message: '数据库错误' });
+
+            const photos = rows.map(row => ({
+              id: row.id,
+              ossKey: row.oss_key,
+              category: row.category,
+              displayName: escapeHtml(row.display_name || row.oss_key.split('/').pop()),
+              thumbnailUrl: getOSSUrl(row.oss_key, true),
+              fullUrl: getOSSFullUrl(row.oss_key)
+            }));
+
+            res.json({
+              success: true,
+              found: true,
+              faceGroupId: groupRow.id,
+              confidence: result.confidence,
+              photos
+            });
+          }
+        );
+      }
+    );
+  } catch (err) {
+    console.error('人脸搜索失败:', err);
+    res.status(500).json({ success: false, message: '人脸搜索失败: ' + err.message });
   }
 });
 

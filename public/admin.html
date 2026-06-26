@@ -99,7 +99,18 @@
 
             <!-- 导入照片 -->
             <div class="tab-content" id="tab-import">
-                <div class="import-section">
+                <div class="import-section" style="background: #f8f9fa; padding: 16px; border-radius: 8px;">
+                    <h3>&#128269; 人脸聚类</h3>
+                    <p style="color: #666; font-size: 14px; margin-bottom: 12px;">
+                        对已成功导入的照片进行人脸识别，自动将同一个人的照片归为一组。聚类后同学可上传参考照片快速找到自己的照片。<br>
+                        <strong>注意：</strong> 需要先在环境变量中配置 FACE_ENABLED=true 和阿里云人脸识别密钥。
+                    </p>
+                    <button class="btn-primary" onclick="clusterFaces()">开始人脸聚类</button>
+                    <button class="btn-outline" onclick="clearFaceDatabase()" style="margin-left: 10px;">清理人脸库</button>
+                    <p id="face-cluster-result" style="margin-top: 12px; color: #27ae60;"></p>
+                </div>
+
+                <div class="import-section" style="margin-top: 20px;">
                     <h3>🔍 自动扫描导入</h3>
                     <p style="color: #666; font-size: 14px; margin-bottom: 12px;">
                         系统将自动扫描 OSS 根目录下的所有子文件夹，每个子文件夹作为一个分类，自动导入其中的照片。<br>
@@ -409,10 +420,10 @@
                 resultEl.style.color = '#e74c3c';
                 return;
             }
-            
+
             resultEl.textContent = '正在扫描 OSS，请稍候...';
             resultEl.style.color = '#4a90d9';
-            
+
             fetch(`${API_BASE}/api/admin/auto-scan`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -430,6 +441,72 @@
             })
             .catch(() => {
                 resultEl.textContent = '网络错误，请检查 OSS 配置';
+                resultEl.style.color = '#e74c3c';
+            });
+        }
+
+        function clusterFaces() {
+            const resultEl = document.getElementById('face-cluster-result');
+            if (!adminToken) {
+                resultEl.textContent = '请先登录';
+                resultEl.style.color = '#e74c3c';
+                return;
+            }
+
+            resultEl.textContent = '正在聚类，请稍候（可能需要几分钟）...';
+            resultEl.style.color = '#4a90d9';
+
+            fetch(`${API_BASE}/api/admin/face/cluster`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: adminToken })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    resultEl.innerHTML = `<strong>${escapeHtml(data.message)}</strong>`;
+                    resultEl.style.color = '#27ae60';
+                } else {
+                    resultEl.textContent = data.message || '聚类失败';
+                    resultEl.style.color = '#e74c3c';
+                }
+            })
+            .catch(() => {
+                resultEl.textContent = '网络错误，请检查人脸识别配置';
+                resultEl.style.color = '#e74c3c';
+            });
+        }
+
+        function clearFaceDatabase() {
+            const resultEl = document.getElementById('face-cluster-result');
+            if (!adminToken) {
+                resultEl.textContent = '请先登录';
+                resultEl.style.color = '#e74c3c';
+                return;
+            }
+
+            if (!confirm('确定要清理所有人脸数据吗？此操作不可恢复。')) return;
+
+            resultEl.textContent = '正在清理...';
+            resultEl.style.color = '#4a90d9';
+
+            fetch(`${API_BASE}/api/admin/face/clear`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: adminToken })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    resultEl.textContent = data.message;
+                    resultEl.style.color = '#27ae60';
+                } else {
+                    resultEl.textContent = data.message || '清理失败';
+                    resultEl.style.color = '#e74c3c';
+                }
+            })
+            .catch(() => {
+                resultEl.textContent = '网络错误';
                 resultEl.style.color = '#e74c3c';
             });
         }

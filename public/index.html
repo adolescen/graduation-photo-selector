@@ -53,6 +53,11 @@
             <!-- 分类按钮由 JS 动态加载 -->
         </div>
 
+        <div class="face-search-bar" id="face-search-bar">
+            <button class="btn-outline" onclick="openFaceSearchModal()">&#128269; 按人脸找照片</button>
+            <p class="face-search-hint">上传一张自己的照片，快速找到所有含自己的照片</p>
+        </div>
+
         <div class="progress-bar">
             <div class="progress-info">
                 <span>已选 <strong id="selected-count">0</strong> 张</span>
@@ -98,6 +103,32 @@
             <div class="modal-actions">
                 <button class="btn-outline" onclick="closeModal()">再改改</button>
                 <button class="btn-primary" id="confirm-submit-btn" onclick="confirmSubmit()" disabled>确认提交</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 人脸搜索弹窗 -->
+    <div class="modal-overlay hidden" id="face-search-modal">
+        <div class="modal">
+            <h3>按人脸找照片</h3>
+            <p class="privacy-hint" style="color: #666; font-size: 13px; margin: 10px 0;">
+                上传照片仅用于帮你找到自己的照片，事件结束后管理员会清理人脸数据。
+            </p>
+            <input type="file" id="face-search-input" accept="image/*" capture="environment" style="display:none;" onchange="submitFaceSearch()">
+            <div class="face-search-upload" id="face-search-upload" onclick="document.getElementById('face-search-input').click()">
+                <p>点击上传或拍摄一张正面照片</p>
+            </div>
+            <div class="face-search-loading hidden" id="face-search-loading">
+                <div class="spinner"></div>
+                <p>正在查找相似照片...</p>
+            </div>
+            <div class="face-search-result hidden" id="face-search-result">
+                <p id="face-search-status"></p>
+                <div class="face-search-photos" id="face-search-photos"></div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="closeFaceSearchModal()">关闭</button>
+                <button class="btn-primary" onclick="useFaceSearchResult()">使用这些照片</button>
             </div>
         </div>
     </div>
