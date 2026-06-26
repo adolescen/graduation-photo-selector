@@ -1,157 +1,125 @@
----
-title: 毕业照片选择系统
-emoji: 📸
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
+# Graduation Photo Selector
+
+<p align="center">
+  <strong>班级毕业照片选择系统</strong><br>
+  一个轻量、安全的班级毕业照投票与汇总工具
+</p>
+
+<p align="center">
+  <a href="https://github.com/adolescen/graduation-photo-selector/releases">
+    <img src="https://img.shields.io/github/v/release/adolescen/graduation-photo-selector?display_name=tag" alt="Release">
+  </a>
+  <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen" alt="Node.js">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
+</p>
+
 ---
 
-# 毕业照片选择系统
+## 简介
 
-一个轻量级的班级毕业照片投票网站，支持瀑布流浏览、每人选 8 张入册、自动统计汇总。从百度网盘迁移到阿里云 OSS，解决班级群选照片不方便的问题。
+**Graduation Photo Selector** 是一个面向班级毕业相册选片的 Web 应用。同学通过手机浏览器即可浏览、挑选自己最满意的毕业照，管理员可在后台查看统计、导出汇总 CSV。
+
+本项目后期以 **GitHub** 作为主版本管理仓库，Hugging Face Space 作为部署运行环境之一。
 
 ## 功能特性
 
-| 功能 | 说明 |
-|------|------|
-| 📱 **手机优先** | 响应式设计，微信内置浏览器完美兼容 |
-| 🔐 **密码访问** | 班级密码控制入口，短期使用 |
-| 👤 **姓名登记** | 填写真实姓名，后端 session token 认证，防止重复/篡改 |
-| 🏞️ **瀑布流浏览** | CSS Columns 瀑布流，照片按自然比例显示，支持无限滚动 |
-| 👁️ **图片查看器** | 放大、缩小、拖拽平移、双指缩放、滚轮缩放、双击重置、ESC 关闭 |
-| ✅ **灵活选 N 张** | 选择时不限制数量，提交弹窗中可查看大图并取消多余照片，保留恰好 N 张（N 由管理员通过环境变量配置，默认 8） |
-| 🏷️ **自动分类** | 扫描 OSS 根目录下的子文件夹，自动识别为分类（如校园服单人/校园服小组/篮球服单人/运动服小组） |
-| 🔍 **自动扫描导入** | 启动时自动检测，数据库为空则自动扫描 OSS 并导入照片 |
-| 💾 **分类缓存** | 切换分类时先读取缓存，秒加载，避免反复等待 |
-| ⏰ **截止时间** | 截止前可反复修改，截止后锁定 |
-| 📊 **统计看板** | 管理员总览（参与人数/完成率/照片热度）+ 个人看板 |
-| 📥 **导出 CSV** | 一键导出所有人的选择结果到 Excel |
+- **响应式移动端体验**：针对微信内置浏览器和手机屏幕优化
+- **班级密码访问**：单密码控制同学入口
+- **姓名登记 + Session 认证**：后端生成 session token，防止身份篡改
+- **瀑布流浏览**：CSS Columns 瀑布流，支持无限滚动
+- **图片查看器**：支持放大、缩小、拖拽平移、双指缩放、双击重置
+- **灵活选 N 张**：选择阶段不限制数量，提交弹窗中可取消多余照片，保留恰好 N 张
+- **OSS 自动分类**：扫描 OSS 根目录下的子文件夹，自动识别为照片分类
+- **自动扫描导入**：启动时自动检测数据库，为空时自动扫描 OSS 导入
+- **分类缓存**：首次加载后缓存，切换分类秒加载
+- **截止时间控制**：截止前可修改，截止后锁定
+- **管理员看板**：参与人数、完成率、照片热度、个人选择明细
+- **CSV 导出**：一键导出全班选择结果
+- **健康检查**：`/health` 端点供监控探针使用
+- **API 限流**：班级密码和管理员登录接口均有 rate limit 保护
 
 ## 技术栈
 
-- **后端**：Node.js + Express + SQLite（零配置数据库）
-- **前端**：纯 HTML + CSS + JS（无框架依赖）
-- **存储**：阿里云 OSS（签名 URL 访问，支持图片处理缩略图）
-- **部署**：Hugging Face Spaces（Docker，免费持久化 `/data`）
+| 层级 | 技术 |
+|------|------|
+| 后端 | Node.js + Express |
+| 数据库 | SQLite（文件型，零配置） |
+| 前端 | 原生 HTML + CSS + JavaScript |
+| 对象存储 | 阿里云 OSS（签名 URL + 图片处理） |
+| 部署 | Hugging Face Spaces（Docker） |
+| 测试 | Node.js 内置 `node --test` |
+| 代码质量 | ESLint |
 
-## 快速部署（Hugging Face Spaces）
+## 快速开始
 
-### 1. 准备代码
+### 环境要求
 
-确保代码已推送到 GitHub：
+- Node.js >= 18.0.0
+- npm
+
+### 本地运行
+
 ```bash
+# 克隆仓库
 git clone https://github.com/adolescen/graduation-photo-selector.git
 cd graduation-photo-selector
-```
 
-### 2. 创建 Hugging Face Space
-
-1. 打开 [huggingface.co](https://huggingface.co) → 注册/登录
-2. 点击头像 → **New Space**
-3. 配置：
-   - Space name: `graduation-photo-selector`
-   - License: MIT
-   - SDK: **Docker**
-   - 点击 **Create Space**
-4. 连接 GitHub：
-   - Space → **Files** → **Settings** → **Git**
-   - 连接 GitHub → 选择 `graduation-photo-selector` → 分支 `master` → **Link to GitHub**
-
-### 3. 配置环境变量
-
-Space → **Settings** → **Variables and Secrets**，添加：
-
-| 变量名 | 类型 | 说明 |
-|--------|------|------|
-| `CLASS_PASSWORD` | Secret | 班级密码（如 `20260306`） |
-| `ADMIN_PASSWORD` | Secret | 管理员密码（如 `admin0306`） |
-| `DEADLINE` | Variable | 截止时间 `2026-07-15T23:59:59` |
-| `SELECTION_COUNT` | Variable | 每人选择照片数量（默认 `8`） |
-| `OSS_REGION` | Variable | `oss-cn-hangzhou` |
-| `OSS_BUCKET` | Variable | `adolescen` |
-| `OSS_ACCESS_KEY_ID` | Secret | 阿里云 AccessKey ID |
-| `OSS_ACCESS_KEY_SECRET` | Secret | 阿里云 AccessKey Secret |
-| `OSS_ROOT_PREFIX` | Variable | 照片根目录（如 `江南中学毕业照/`） |
-| `HF_DATA_DIR` | Variable | `/data`（持久化目录） |
-
-> ⚠️ **安全提醒**：首次部署后，建议去阿里云控制台撤销旧 AccessKey，生成新的并更新环境变量。
-
-### 4. 重启并等待构建
-
-点击 **Factory reboot**，等待 3-5 分钟构建完成。
-
-### 5. 访问验证
-
-```
-https://你的用户名-graduation-photo-selector.hf.space       → 首页（自动加载照片）
-https://你的用户名-graduation-photo-selector.hf.space/admin  → 管理员看板
-```
-
-如果数据库中无照片，启动时会**自动扫描 OSS** 导入。
-
----
-
-## 本地运行
-
-```bash
+# 安装依赖
 npm install
+
+# 复制环境变量模板并编辑
+cp .env.example .env
+# 修改 .env 中的密码、截止时间、OSS 配置等
+
+# 启动服务
 npm start
 ```
 
-服务在 `http://localhost:3000` 运行。
+服务默认在 `http://localhost:3000` 运行。
 
-### 环境变量（.env）
+开发模式（自动重启）：
 
 ```bash
-CLASS_PASSWORD=你的班级密码
-ADMIN_PASSWORD=你的管理员密码
-DEADLINE=2026-07-15T23:59:59
-SELECTION_COUNT=8
-OSS_REGION=oss-cn-hangzhou
-OSS_BUCKET=adolescen
-OSS_ACCESS_KEY_ID=你的AccessKey
-OSS_ACCESS_KEY_SECRET=你的AccessKeySecret
-OSS_ROOT_PREFIX=江南中学毕业照/
+npm run dev
 ```
 
----
+### 环境变量
 
-## 使用流程
+复制 `.env.example` 为 `.env`，并按需填写：
 
-### 同学端
+| 变量名 | 必填 | 说明 |
+|--------|------|------|
+| `CLASS_PASSWORD` | 是 | 班级入口密码 |
+| `ADMIN_PASSWORD` | 是 | 管理员后台密码 |
+| `DEADLINE` | 否 | 截止时间，ISO 8601 格式，如 `2026-07-15T23:59:59` |
+| `SELECTION_COUNT` | 否 | 每人需选照片数量，默认 `8`；设为 `0` 表示暂停选择 |
+| `OSS_REGION` | 否 | 阿里云 OSS Region，如 `oss-cn-hangzhou` |
+| `OSS_BUCKET` | 否 | OSS Bucket 名称 |
+| `OSS_ACCESS_KEY_ID` | 否 | 阿里云 AccessKey ID |
+| `OSS_ACCESS_KEY_SECRET` | 否 | 阿里云 AccessKey Secret |
+| `OSS_ENDPOINT` | 否 | OSS 访问域名 |
+| `OSS_ROOT_PREFIX` | 否 | 照片根目录，如 `江南中学毕业照/`，留空表示扫描根目录 |
+| `AUTO_SCAN_ON_START` | 否 | 启动时是否自动扫描 OSS，默认 `true`；照片较多时可设为 `false` |
+| `HF_DATA_DIR` | 否 | Hugging Face Spaces 持久化目录，通常设为 `/data` |
+| `PORT` | 否 | 服务端口，默认 `3000` |
 
-1. 打开链接 → 输入**班级密码** → 进入
-2. 填写**真实姓名** → 后端生成 session token
-3. 浏览照片：
-   - 点击分类按钮筛选（如校园服单人）
-   - 滚动瀑布流，无限滚动自动加载
-   - 点击照片 = **选中/取消**（蓝色边框 + ✓ 标记）
-   - 点击左上角 👁 = **查看大图**（支持放大、平移、缩放）
-4. 选择任意数量（建议先多选，再筛选）
-5. 点击**提交选择** → 弹窗显示所有候选照片
-   - 每张照片可点击**取消**（红色 ✕）
-   - 点击 👁 = **查看大图**确认质量
-   - 恰好达到配置数量时，**确认提交**按钮激活
-6. 可随时点击 **"我的选择"** 查看已提交的 N 张
-7. 点击 **"退出"** 可切换身份（同学 ↔ 管理员）
+> ⚠️ **安全提示**：`.env` 文件不应提交到 Git。生产环境请使用平台提供的 Secrets/Variables 功能。
 
-### 管理员端
+## 部署到 Hugging Face Spaces
 
-1. 访问 `/admin` → 输入管理员密码
-2. **统计看板**：
-   - 参与人数 / 已完成 / 完成率
-   - 按人查看选择了哪些照片
-   - 照片热度（哪张最受欢迎）
-   - 点击缩略图可查看大图
-3. **导出 CSV**：一键下载所有人的选择结果
-4. **导入照片**：
-   - 自动扫描：一键扫描 OSS 根目录，自动按文件夹分类
-   - 手动导入：粘贴 `分类|OSS路径|名称` 格式列表
+1. 在 [Hugging Face](https://huggingface.co) 创建一个 **Docker** 类型的 Space
+2. 在 Space Settings 中连接本 GitHub 仓库的 `master` 分支
+3. 在 Space Settings → **Variables and Secrets** 中配置上述环境变量
+4. 点击 **Factory reboot** 等待构建完成
 
----
+访问地址：
 
-## 目录结构
+```
+https://<用户名>-graduation-photo-selector.hf.space       # 同学入口
+https://<用户名>-graduation-photo-selector.hf.space/admin # 管理员后台
+```
+
+## 项目结构
 
 ```
 graduation-photo-selector/
@@ -159,72 +127,88 @@ graduation-photo-selector/
 ├── Dockerfile               # Node.js 20 + /data 持久化
 ├── package.json
 ├── .env.example             # 环境变量模板
-├── .env                     # 本地环境变量（不提交）
 ├── .gitignore
 ├── README.md
-├── public/
-│   ├── index.html           # 主页面：瀑布流选照片
-│   ├── admin.html           # 管理员看板：统计 + 导入 + 导出
-│   ├── dashboard.html       # 个人看板：查看已选 8 张
+├── public/                  # 前端静态资源
+│   ├── index.html           # 同学选照片主页
+│   ├── admin.html           # 管理员看板
+│   ├── dashboard.html       # 个人已选照片看板
 │   ├── css/
-│   │   └── style.css        # 响应式样式 + 瀑布流 + 查看器
+│   │   └── style.css
 │   └── js/
-│       ├── app.js           # 主页面逻辑：无限滚动 + 选择 + 提交弹窗
-│       └── photo-viewer.js  # 通用图片查看器：缩放/平移/手势
+│       ├── app.js           # 主页面逻辑
+│       └── photo-viewer.js  # 图片查看器
 ├── scripts/
-│   └── scan-oss.js          # 扫描 OSS 根目录并输出导入列表
-└── database.sqlite          # SQLite 数据库（运行后自动生成）
+│   └── scan-oss.js          # 扫描 OSS 输出导入列表
+└── test/                    # 测试文件
+    ├── helper.js
+    ├── sqlite3-shim.js
+    ├── auth.test.js
+    ├── users.test.js
+    ├── selection.test.js
+    └── admin.test.js
 ```
 
----
+## API 概览
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/health` | 健康检查 |
+| GET | `/api/settings` | 获取选择数量、截止时间等配置 |
+| POST | `/api/auth/verify` | 验证班级密码 |
+| POST | `/api/users` | 用户登记/登录 |
+| POST | `/api/selections` | 提交照片选择 |
+| GET | `/api/photos` | 分页获取照片列表 |
+| POST | `/api/admin/login` | 管理员登录 |
+| POST | `/api/admin/stats` | 统计信息 |
+| POST | `/api/admin/export` | 导出 CSV |
+| POST | `/api/admin/import-photos` | 手动导入照片 |
+| POST | `/api/admin/auto-scan` | 触发 OSS 自动扫描 |
+
+## 测试
+
+```bash
+# 运行全部测试
+npm test
+
+# 运行 lint
+npm run lint
+```
+
+测试使用 `node --test` 运行，并通过 `better-sqlite3` 兼容层在内存数据库中执行，避免污染本地 `database.sqlite`。
 
 ## 安全说明
 
-本项目已针对安全审计进行修复：
-
-- **API 认证**：所有敏感路由需要 `X-Session-Token`，后端从 session 表验证身份
-- **用户隔离**：选择提交时后端从 session 获取 userId，拒绝篡改他人数据
-- **Admin 认证**：管理员 token 存入数据库 session 表，30 分钟有效期，不通过 URL 传递
-- **XSS 防护**：所有动态内容使用 DOM API + `textContent` 插入，后端输出统一 `escapeHtml`
-- **选择验证**：后端验证 8 个唯一整数 ID，且均在数据库中存在
-- **分页限制**：limit 限制 1-100，防止滥用
-
----
+- **密码验证**：班级密码和管理员密码均通过环境变量配置，不硬编码在代码中
+- **Session 认证**：敏感操作需携带 `X-Session-Token` 或 `X-Admin-Token`
+- **管理员 Token**：存入数据库，30 分钟过期，不通过 URL 传递
+- **输入校验**：后端校验选择数量、ID 唯一性、ID 存在性、截止时间等
+- **XSS 防护**：动态内容使用 DOM API + `textContent` 插入
+- **限流保护**：`/api/auth/verify`、`/api/users`、`/api/admin/login` 均有 rate limit
 
 ## OSS 照片目录结构
 
-系统会自动扫描根目录下的**子文件夹**作为分类：
+系统将 `OSS_ROOT_PREFIX` 下的**子文件夹**识别为分类：
 
 ```
-adolescen bucket/
-├── 江南中学毕业照/          ← OSS_ROOT_PREFIX
-│   ├── 校园服单人/          → 自动识别为分类"校园服单人"
-│   ├── 校园服小组/          → 自动识别为分类"校园服小组"
-│   ├── 篮球服单人/          → 自动识别为分类"篮球服单人"
-│   └── 运动服小组/          → 自动识别为分类"运动服小组"
+<bucket>/
+└── 江南中学毕业照/          # OSS_ROOT_PREFIX
+    ├── 校园服单人/          → 分类：校园服单人
+    ├── 校园服小组/          → 分类：校园服小组
+    ├── 篮球服单人/          → 分类：篮球服单人
+    └── 运动服小组/          → 分类：运动服小组
 ```
 
----
+## 版本管理
 
-## 常见问题
-
-**Q: 首次部署后照片没有自动加载？**  
-A: 检查 Container logs 中是否有自动扫描日志。如果 OSS 配置错误，会在日志中显示具体原因。
-
-**Q: 切换分类时照片加载慢？**  
-A: 首次加载后数据会缓存到 sessionStorage，24 小时内再次切换同一分类会秒加载。
-
-**Q: 如何更新照片（新增/删除）？**  
-A: 在 OSS 上修改后，进入 admin 页面点击 **"开始自动扫描"**，系统会自动重新导入。
-
-**Q: 数据会丢失吗？**  
-A: Hugging Face 的 `/data` 目录通常持久化，但免费版偶尔会因休眠重置。建议定期在 admin 页面导出 CSV 备份。
-
-**Q: 可以限制每人只能提交一次吗？**  
-A: 当前设计截止前可修改。如需严格限制，可修改 `server.js` 中的更新逻辑（将 UPDATE 改为拒绝重复提交）。
-
----
+- 主仓库：[https://github.com/adolescen/graduation-photo-selector](https://github.com/adolescen/graduation-photo-selector)
+- 版本发布：通过 [GitHub Releases](https://github.com/adolescen/graduation-photo-selector/releases) 管理
+- 部署镜像：Hugging Face Space 从 GitHub `master` 分支同步
 
 ## License
 
-MIT
+[MIT](LICENSE)
+
+## Changelog
+
+详见 [GitHub Releases](https://github.com/adolescen/graduation-photo-selector/releases)。
