@@ -22,5 +22,5 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git remote add hf https://huggingface.co/spaces/adolescen/graduation-photo-selector.git
+          git remote add hf https://user:${HF_TOKEN}@huggingface.co/spaces/adolescen/graduation-photo-selector.git
           git push hf master
