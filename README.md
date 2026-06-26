@@ -1,3 +1,12 @@
+---
+title: 毕业照片选择系统
+emoji: 📸
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+
 # Graduation Photo Selector
 
 <p align="center">
