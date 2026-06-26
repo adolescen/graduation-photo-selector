@@ -11,6 +11,15 @@ let pendingPhotoIds = []; // 弹窗中临时选择
 let photoCache = {};
 let isDeadlinePassed = false;
 let selectionCount = 8; // 从后端动态获取
+let isSelectionPaused = false;
+
+let lastPhotoLoadTime = 0;
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - lastPhotoLoadTime > 30 * 60 * 1000) {
+        loadPhotos();
+    }
+});
 
 // 缓存辅助函数
 const CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24小时
@@ -244,13 +253,29 @@ function loadSettings() {
         .then(data => {
             if (data.success) {
                 isDeadlinePassed = data.isDeadlinePassed;
-                if (data.selectionCount) {
+                if (typeof data.selectionCount === 'number') {
                     selectionCount = data.selectionCount;
+                    isSelectionPaused = selectionCount <= 0;
                 }
                 if (data.deadline) {
                     const deadline = new Date(data.deadline);
-                    document.getElementById('deadline-display').textContent = 
+                    document.getElementById('deadline-display').textContent =
                         `截止时间: ${deadline.toLocaleString('zh-CN')}`;
+                }
+                if (isSelectionPaused) {
+                    const submitBtn = document.getElementById('submit-btn');
+                    if (submitBtn) {
+                        submitBtn.textContent = '活动暂停';
+                        submitBtn.disabled = true;
+                    }
+                    const pausedHint = document.getElementById('paused-hint') || document.createElement('div');
+                    pausedHint.id = 'paused-hint';
+                    pausedHint.className = 'paused-hint';
+                    pausedHint.textContent = '当前活动暂停，暂无法选择照片';
+                    const container = document.querySelector('.progress-container') || document.getElementById('selection-info');
+                    if (container && !document.getElementById('paused-hint')) {
+                        container.appendChild(pausedHint);
+                    }
                 }
                 if (isDeadlinePassed) {
                     document.getElementById('submit-btn').textContent = '已截止';
@@ -305,6 +330,7 @@ function loadPhotos() {
     }
     
     fetchPhotoPage(1, true);
+    lastPhotoLoadTime = Date.now();
 }
 
 function loadMorePhotos() {
@@ -411,6 +437,11 @@ function renderPhotos(photos, append = false) {
 
 // ====== 选择逻辑（不限制数量） ======
 function togglePhoto(photoId) {
+    if (isSelectionPaused) {
+        alert('当前活动暂停，暂无法选择照片');
+        return;
+    }
+
     if (isDeadlinePassed) {
         alert('已超过截止时间，无法修改选择');
         return;
@@ -524,6 +555,11 @@ function filterCategory(category) {
 
 // ====== 提交（弹窗中可取消多余照片） ======
 function submitSelection() {
+    if (isSelectionPaused) {
+        alert('当前活动暂停，暂无法提交选择');
+        return;
+    }
+
     if (selectedPhotos.size < selectionCount) {
         alert(`需要至少选择${selectionCount}张照片才能提交`);
         return;

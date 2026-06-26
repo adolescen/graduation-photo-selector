@@ -175,21 +175,25 @@
         function showAdminPage() {
             document.getElementById('login-page').classList.add('hidden');
             document.getElementById('admin-page').classList.remove('hidden');
-            loadStats();
-            loadSettings();
+            loadSettings().then(loadStats);
         }
 
         function loadSettings() {
-            fetch(`${API_BASE}/api/settings`)
+            return fetch(`${API_BASE}/api/settings`)
                 .then(r => r.json())
                 .then(data => {
-                    if (data.success && data.deadline) {
-                        const d = new Date(data.deadline);
-                        document.getElementById('stat-deadline').textContent = 
-                            d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+                    if (data.success) {
+                        window.selectionCount = typeof data.selectionCount === 'number' ? data.selectionCount : 8;
+                        if (data.deadline) {
+                            const d = new Date(data.deadline);
+                            document.getElementById('stat-deadline').textContent =
+                                d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+                        }
                     }
                 })
-                .catch(() => {});
+                .catch(() => {
+                    window.selectionCount = window.selectionCount || 8;
+                });
         }
 
         function loadStats() {
@@ -219,22 +223,30 @@
             const tbody = document.getElementById('users-table');
             tbody.innerHTML = '';
 
+            const targetCount = window.selectionCount || 8;
+            const isPaused = targetCount <= 0;
+
             users.forEach(u => {
-                const isComplete = u.photoCount === 8;
+                const isComplete = !isPaused && u.photoCount === targetCount;
                 const tr = document.createElement('tr');
-                
+
                 const nameTd = document.createElement('td');
                 const nameStrong = document.createElement('strong');
                 nameStrong.textContent = u.name;
                 nameTd.appendChild(nameStrong);
-                
+
                 const countTd = document.createElement('td');
-                countTd.textContent = `${u.photoCount}/8`;
+                countTd.textContent = isPaused ? '活动暂停' : `${u.photoCount}/${targetCount}`;
                 
                 const statusTd = document.createElement('td');
                 const badge = document.createElement('span');
-                badge.className = `badge ${isComplete ? 'badge-success' : 'badge-warning'}`;
-                badge.textContent = isComplete ? '已完成' : '未完成';
+                if (isPaused) {
+                    badge.className = 'badge badge-secondary';
+                    badge.textContent = '活动暂停';
+                } else {
+                    badge.className = `badge ${isComplete ? 'badge-success' : 'badge-warning'}`;
+                    badge.textContent = isComplete ? '已完成' : '未完成';
+                }
                 statusTd.appendChild(badge);
                 
                 const idsTd = document.createElement('td');

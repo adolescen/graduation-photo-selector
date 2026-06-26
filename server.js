@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const OSS = require('ali-oss');
@@ -8,8 +9,9 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 选择数量配置（默认8张）
-const SELECTION_COUNT = parseInt(process.env.SELECTION_COUNT) || 8;
+// 选择数量配置（默认8张；显式设置为0表示暂停选择）
+const parsedSelectionCount = parseInt(process.env.SELECTION_COUNT, 10);
+const SELECTION_COUNT = Number.isNaN(parsedSelectionCount) ? 8 : parsedSelectionCount;
 
 // 安全响应头
 app.use((req, res, next) => {
@@ -21,6 +23,20 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// 速率限制中间件
+const createJsonRateLimit = (max, windowMinutes) => rateLimit({
+  windowMs: windowMinutes * 60 * 1000,
+  max,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({ success: false, message: '请求过于频繁，请稍后再试' });
+  }
+});
+
+const authRateLimit = createJsonRateLimit(10, 15);
+const adminLoginRateLimit = createJsonRateLimit(5, 15);
 
 // 显式路由：根路径访问首页
 app.get('/', (req, res) => {
@@ -73,8 +89,8 @@ try {
   }
   require('fs').accessSync(dbDir, require('fs').constants.W_OK);
 } catch (err) {
-  console.warn('⚠️ 无法写入数据库目录，使用内存数据库:', err.message);
-  dbPath = ':memory:';
+  console.error('❌ 无法写入数据库目录，启动失败:', err.message);
+  process.exit(1);
 }
 
 const db = new sqlite3.Database(dbPath);
@@ -82,10 +98,6 @@ const db = new sqlite3.Database(dbPath);
 db.on('error', (err) => {
   console.error('SQLite 错误:', err.message);
 });
-
-if (dbPath === ':memory:') {
-  console.log('📌 使用内存数据库，重启后数据会丢失。请定期导出 CSV 备份。');
-}
 
 // 创建会话表（用于安全认证）
 db.serialize(() => {
@@ -135,9 +147,11 @@ function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
+const OSS_URL_EXPIRES_SECONDS = 7 * 24 * 60 * 60; // 7天
+
 function getOSSUrl(ossKey, isThumbnail = false) {
   if (ossClient) {
-    const options = { expires: 86400 };
+    const options = { expires: OSS_URL_EXPIRES_SECONDS };
     if (isThumbnail) {
       options.process = 'image/resize,w_400,quality_80';
     }
@@ -154,7 +168,7 @@ function getOSSUrl(ossKey, isThumbnail = false) {
 
 function getOSSFullUrl(ossKey) {
   if (ossClient) {
-    return ossClient.signatureUrl(ossKey, { expires: 86400 });
+    return ossClient.signatureUrl(ossKey, { expires: OSS_URL_EXPIRES_SECONDS });
   }
   const endpoint = process.env.OSS_ENDPOINT || '';
   const base = endpoint.replace(/\/$/, '');
@@ -283,7 +297,7 @@ async function scanOSSRoot() {
 // ====== API 路由 ======
 
 // 验证班级密码（仅前端校验，返回 classToken 用于后续认证）
-app.post('/api/auth/verify', (req, res) => {
+app.post('/api/auth/verify', authRateLimit, (req, res) => {
   const { password } = req.body;
   if (password === process.env.CLASS_PASSWORD) {
     res.json({ success: true });
@@ -293,7 +307,7 @@ app.post('/api/auth/verify', (req, res) => {
 });
 
 // 注册/登录用户（按姓名）— 验证班级密码 + 生成 sessionToken
-app.post('/api/users', (req, res) => {
+app.post('/api/users', authRateLimit, (req, res) => {
   const { name, classPassword } = req.body;
   
   if (!classPassword || classPassword !== process.env.CLASS_PASSWORD) {
@@ -504,14 +518,24 @@ app.get('/api/settings', (req, res) => {
   });
 });
 
+// 健康检查端点（无认证，供负载均衡/监控探针使用）
+app.get('/health', (req, res) => {
+  db.get('SELECT 1', [], (err) => {
+    if (err) {
+      return res.status(503).json({ status: 'error', message: '数据库连接异常', db: 'down' });
+    }
+    res.json({ status: 'ok', db: 'up', timestamp: new Date().toISOString() });
+  });
+});
+
 // 管理员登录 — 返回短期 token（不建议长期存储）
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', adminLoginRateLimit, (req, res) => {
   const { password } = req.body;
   if (password === process.env.ADMIN_PASSWORD) {
     const token = generateToken();
     // 存储管理员 token（30 分钟有效）
     db.run(
-      'INSERT INTO sessions (token, user_id, type, expires_at) VALUES (?, ?, ?, datetime("now", "+30 minutes"))',
+      'INSERT INTO sessions (token, user_id, type, expires_at) VALUES (?, ?, ?, datetime(\'now\', \'+30 minutes\'))',
       [token, 0, 'admin'],
       (err) => {
         if (err) return res.status(500).json({ success: false, message: '创建会话失败' });
@@ -666,6 +690,12 @@ app.post('/api/admin/auto-scan', requireAdmin, async (req, res) => {
 // ====== 启动 ======
 // 自动检测：如果数据库中无照片，自动扫描 OSS 导入
 function autoDetectAndImport() {
+  if (process.env.AUTO_SCAN_ON_START === 'false') {
+    console.log('ℹ️ AUTO_SCAN_ON_START=false，跳过自动扫描');
+    startServer();
+    return;
+  }
+
   if (!ossClient) {
     console.log('ℹ️ OSS 未配置，跳过自动扫描');
     return;
@@ -733,4 +763,8 @@ function startServer() {
   });
 }
 
-autoDetectAndImport();
+if (require.main === module) {
+  autoDetectAndImport();
+}
+
+module.exports = app;
