@@ -80,7 +80,13 @@ const ossClient = (() => {
 })();
 
 // ====== 数据库初始化 ======
-let dbPath = process.env.HF_DATA_DIR ? '/data/database.sqlite' : path.join(__dirname, 'database.sqlite');
+// 兼容三种部署环境：
+// 1. 本地开发：数据库在项目根目录 database.sqlite
+// 2. Hugging Face Spaces：HF_DATA_DIR=/data
+// 3. 阿里云 ECS：DATA_DIR=/var/lib/graduation-photo-selector
+const dataDir = process.env.DATA_DIR
+  || (process.env.HF_DATA_DIR ? '/data' : __dirname);
+const dbPath = path.join(dataDir, process.env.DATABASE_NAME || 'database.sqlite');
 const dbDir = path.dirname(dbPath);
 
 try {
