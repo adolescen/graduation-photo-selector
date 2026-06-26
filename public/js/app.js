@@ -573,7 +573,7 @@ function renderConfirmPhotos() {
         confirmDesc.textContent = `当前仅 ${count} 张，需要恰好8张。`;
     }
     
-    // 渲染每张照片（可点击取消）
+    // 渲染每张照片（可点击取消，也可查看大图）
     pendingPhotoIds.forEach(id => {
         const photo = photoCache[id];
         if (!photo) return;
@@ -586,16 +586,28 @@ function renderConfirmPhotos() {
         img.src = photo.thumbnailUrl;
         img.alt = photo.displayName || '';
         
+        // 查看大图按钮
+        const viewBtn = document.createElement('div');
+        viewBtn.className = 'view-btn';
+        viewBtn.textContent = '👁';
+        viewBtn.title = '查看大图';
+        viewBtn.onclick = (e) => {
+            e.stopPropagation();
+            openPhotoViewer(photo.fullUrl, photo.displayName || '');
+        };
+        
         // 取消标记
         const removeMark = document.createElement('div');
         removeMark.className = 'remove-mark';
         removeMark.textContent = '✕';
         
         wrapper.appendChild(img);
+        wrapper.appendChild(viewBtn);
         wrapper.appendChild(removeMark);
         
-        // 点击取消
-        wrapper.onclick = () => {
+        // 点击照片本身 = 取消
+        wrapper.onclick = (e) => {
+            if (e.target === viewBtn) return;
             const idx = pendingPhotoIds.indexOf(id);
             if (idx > -1) {
                 pendingPhotoIds.splice(idx, 1);
@@ -666,19 +678,13 @@ function confirmSubmit() {
 }
 
 // ====== 预览 ======
-function previewPhoto(url) {
-    document.getElementById('preview-img').src = url;
-    document.getElementById('preview-modal').classList.remove('hidden');
+function previewPhoto(url, title) {
+    openPhotoViewer(url, title);
 }
 
 function closePreview() {
-    document.getElementById('preview-modal').classList.add('hidden');
+    closePhotoViewer();
 }
-
-// 点击预览背景关闭
- document.getElementById('preview-modal').addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) closePreview();
-});
 
 // ====== 导航 ======
 function goToDashboard() {

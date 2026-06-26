@@ -265,8 +265,11 @@
                 const imgTd = document.createElement('td');
                 const img = document.createElement('img');
                 img.src = p.ossKey.includes('http') ? p.ossKey : '';
-                img.style.cssText = 'width:60px;height:80px;object-fit:cover;border-radius:4px;';
+                img.style.cssText = 'width:60px;height:80px;object-fit:cover;border-radius:4px;cursor:pointer;';
                 img.alt = '';
+                img.onclick = () => {
+                    if (p.ossKey.includes('http')) openPhotoViewer(p.ossKey, p.displayName);
+                };
                 imgTd.appendChild(img);
                 
                 const nameTd = document.createElement('td');
@@ -428,5 +431,6 @@
             location.reload();
         }
     </script>
+    <script src="js/photo-viewer.js"></script>
 </body>
 </html>

@@ -116,28 +116,7 @@
                                 item.appendChild(num);
                                 
                                 item.onclick = () => {
-                                    const modal = document.createElement('div');
-                                    modal.className = 'modal-overlay';
-                                    modal.style.zIndex = '200';
-                                    
-                                    const modalInner = document.createElement('div');
-                                    modalInner.className = 'modal preview-modal';
-                                    
-                                    const previewImg = document.createElement('img');
-                                    previewImg.src = photo.fullUrl;
-                                    previewImg.alt = photo.displayName || '';
-                                    
-                                    const closeBtn = document.createElement('button');
-                                    closeBtn.className = 'close-btn';
-                                    closeBtn.textContent = '✕';
-                                    closeBtn.onclick = () => modal.remove();
-                                    
-                                    modalInner.appendChild(previewImg);
-                                    modalInner.appendChild(closeBtn);
-                                    modal.appendChild(modalInner);
-                                    
-                                    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
-                                    document.body.appendChild(modal);
+                                    openPhotoViewer(photo.fullUrl, photo.displayName || '');
                                 };
                                 
                                 container.appendChild(item);
@@ -162,6 +141,10 @@
         function backToSelector() {
             window.location.href = 'index.html';
         }
+    </script>
+    <script src="js/photo-viewer.js"></script>
+</body>
+</html>
     </script>
 </body>
 </html>
