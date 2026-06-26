@@ -9,6 +9,7 @@ let selectedPhotos = new Set();
 let pendingPhotoIds = []; // 弹窗中临时选择
 let photoCache = {};
 let isDeadlinePassed = false;
+let selectionCount = 8; // 从后端动态获取
 
 // 缓存辅助函数
 const CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24小时
@@ -58,26 +59,6 @@ function clearAllPhotoCache() {
             sessionStorage.removeItem(key);
         }
     });
-}
-
-// 安全辅助函数：HTML 转义
-function escapeHtml(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#x27;');
-}
-
-// 获取认证请求头
-function getAuthHeaders() {
-    const token = sessionStorage.getItem('sessionToken');
-    return {
-        'Content-Type': 'application/json',
-        ...(token ? { 'X-Session-Token': token } : {})
-    };
 }
 
 // 加载分类并渲染按钮
@@ -272,6 +253,9 @@ function loadSettings() {
         .then(data => {
             if (data.success) {
                 isDeadlinePassed = data.isDeadlinePassed;
+                if (data.selectionCount) {
+                    selectionCount = data.selectionCount;
+                }
                 if (data.deadline) {
                     const deadline = new Date(data.deadline);
                     document.getElementById('deadline-display').textContent = 
@@ -281,9 +265,19 @@ function loadSettings() {
                     document.getElementById('submit-btn').textContent = '已截止';
                     document.getElementById('submit-btn').disabled = true;
                 }
+                // 更新选择数量显示
+                updateSelectionCountDisplay();
             }
         })
         .catch(() => {});
+}
+
+function updateSelectionCountDisplay() {
+    // 更新进度条上的显示
+    const countDisplay = document.querySelector('.progress-info strong');
+    if (countDisplay) {
+        countDisplay.textContent = document.getElementById('selected-count').textContent;
+    }
 }
 
 function loadUserSelection() {
@@ -408,7 +402,7 @@ function renderPhotos(photos, append = false) {
         item.onclick = (e) => {
             if (e.target.closest('.photo-preview-btn')) {
                 e.stopPropagation();
-                previewPhoto(photo.fullUrl);
+                previewPhoto(photo.fullUrl, photo.displayName);
             } else {
                 togglePhoto(photo.id);
             }
@@ -469,23 +463,23 @@ function updateSelectionUI() {
     document.getElementById('panel-count').textContent = count;
     
     const progressFill = document.getElementById('progress-fill');
-    progressFill.style.width = `${Math.min((count / 8) * 100, 100)}%`;
-    progressFill.classList.toggle('complete', count >= 8);
+    progressFill.style.width = `${Math.min((count / selectionCount) * 100, 100)}%`;
+    progressFill.classList.toggle('complete', count >= selectionCount);
     
     const statusText = document.getElementById('status-text');
-    if (count >= 8) {
-        statusText.textContent = '已选够8张，可以提交！';
+    if (count >= selectionCount) {
+        statusText.textContent = `已选够${selectionCount}张，可以提交！`;
         statusText.style.color = '#27ae60';
     } else if (count === 0) {
-        statusText.textContent = '还需选择8张';
+        statusText.textContent = `还需选择${selectionCount}张`;
         statusText.style.color = '#888';
     } else {
-        statusText.textContent = `还需选择 ${8 - count} 张`;
+        statusText.textContent = `还需选择 ${selectionCount - count} 张`;
         statusText.style.color = '#888';
     }
     
     const submitBtn = document.getElementById('submit-btn');
-    submitBtn.disabled = count < 8 || isDeadlinePassed;
+    submitBtn.disabled = count < selectionCount || isDeadlinePassed;
     if (isDeadlinePassed) {
         submitBtn.textContent = '已截止';
     }
@@ -507,7 +501,7 @@ function updateSelectedPanel() {
             <img src="${photo.thumbnailUrl}" alt="${photo.displayName}">
             <div class="remove-btn" onclick="event.stopPropagation(); togglePhoto(${photoId})">✕</div>
         `;
-        thumb.onclick = () => previewPhoto(photo.fullUrl);
+        thumb.onclick = () => previewPhoto(photo.fullUrl, photo.displayName);
         container.appendChild(thumb);
     });
 }
@@ -540,8 +534,8 @@ function filterCategory(category) {
 
 // ====== 提交（弹窗中可取消多余照片） ======
 function submitSelection() {
-    if (selectedPhotos.size < 8) {
-        alert('需要至少选择8张照片才能提交');
+    if (selectedPhotos.size < selectionCount) {
+        alert(`需要至少选择${selectionCount}张照片才能提交`);
         return;
     }
     
@@ -562,15 +556,15 @@ function renderConfirmPhotos() {
     const count = pendingPhotoIds.length;
     
     // 更新标题
-    if (count > 8) {
-        confirmTitle.textContent = '请保留恰好8张照片';
+    if (count > selectionCount) {
+        confirmTitle.textContent = `请保留恰好${selectionCount}张照片`;
         confirmDesc.innerHTML = `您已选择 <strong>${count}</strong> 张，点击照片可取消多余的选择。`;
-    } else if (count === 8) {
+    } else if (count === selectionCount) {
         confirmTitle.textContent = '确认提交';
-        confirmDesc.textContent = '以下8张照片将被提交：';
+        confirmDesc.textContent = `以下${selectionCount}张照片将被提交：`;
     } else {
         confirmTitle.textContent = '照片不足';
-        confirmDesc.textContent = `当前仅 ${count} 张，需要恰好8张。`;
+        confirmDesc.textContent = `当前仅 ${count} 张，需要恰好${selectionCount}张。`;
     }
     
     // 渲染每张照片（可点击取消，也可查看大图）
@@ -627,14 +621,14 @@ function updateConfirmState() {
     const confirmCount = document.getElementById('confirm-count');
     const submitBtn = document.getElementById('confirm-submit-btn');
     
-    confirmCount.textContent = `当前 ${count} / 8 张`;
-    confirmCount.style.color = count === 8 ? '#27ae60' : '#e74c3c';
+    confirmCount.textContent = `当前 ${count} / ${selectionCount} 张`;
+    confirmCount.style.color = count === selectionCount ? '#27ae60' : '#e74c3c';
     
-    if (count === 8) {
+    if (count === selectionCount) {
         submitBtn.textContent = '确认提交';
         submitBtn.disabled = false;
     } else {
-        submitBtn.textContent = count > 8 ? `请取消 ${count - 8} 张` : `还需 ${8 - count} 张`;
+        submitBtn.textContent = count > selectionCount ? `请取消 ${count - selectionCount} 张` : `还需 ${selectionCount - count} 张`;
         submitBtn.disabled = true;
     }
 }
@@ -644,8 +638,8 @@ function closeModal() {
 }
 
 function confirmSubmit() {
-    if (pendingPhotoIds.length !== 8) {
-        alert('必须恰好选择8张照片');
+    if (pendingPhotoIds.length !== selectionCount) {
+        alert(`必须恰好选择${selectionCount}张照片`);
         return;
     }
     

@@ -20,7 +20,7 @@ app_port: 7860
 | 👤 **姓名登记** | 填写真实姓名，后端 session token 认证，防止重复/篡改 |
 | 🏞️ **瀑布流浏览** | CSS Columns 瀑布流，照片按自然比例显示，支持无限滚动 |
 | 👁️ **图片查看器** | 放大、缩小、拖拽平移、双指缩放、滚轮缩放、双击重置、ESC 关闭 |
-| ✅ **灵活选 8 张** | 选择时不限制数量，提交弹窗中可查看大图并取消多余照片，保留恰好 8 张 |
+| ✅ **灵活选 N 张** | 选择时不限制数量，提交弹窗中可查看大图并取消多余照片，保留恰好 N 张（N 由管理员通过环境变量配置，默认 8） |
 | 🏷️ **自动分类** | 扫描 OSS 根目录下的子文件夹，自动识别为分类（如校园服单人/校园服小组/篮球服单人/运动服小组） |
 | 🔍 **自动扫描导入** | 启动时自动检测，数据库为空则自动扫描 OSS 并导入照片 |
 | 💾 **分类缓存** | 切换分类时先读取缓存，秒加载，避免反复等待 |
@@ -67,6 +67,7 @@ Space → **Settings** → **Variables and Secrets**，添加：
 | `CLASS_PASSWORD` | Secret | 班级密码（如 `20260306`） |
 | `ADMIN_PASSWORD` | Secret | 管理员密码（如 `admin0306`） |
 | `DEADLINE` | Variable | 截止时间 `2026-07-15T23:59:59` |
+| `SELECTION_COUNT` | Variable | 每人选择照片数量（默认 `8`） |
 | `OSS_REGION` | Variable | `oss-cn-hangzhou` |
 | `OSS_BUCKET` | Variable | `adolescen` |
 | `OSS_ACCESS_KEY_ID` | Secret | 阿里云 AccessKey ID |
@@ -106,6 +107,7 @@ npm start
 CLASS_PASSWORD=你的班级密码
 ADMIN_PASSWORD=你的管理员密码
 DEADLINE=2026-07-15T23:59:59
+SELECTION_COUNT=8
 OSS_REGION=oss-cn-hangzhou
 OSS_BUCKET=adolescen
 OSS_ACCESS_KEY_ID=你的AccessKey
@@ -130,8 +132,8 @@ OSS_ROOT_PREFIX=江南中学毕业照/
 5. 点击**提交选择** → 弹窗显示所有候选照片
    - 每张照片可点击**取消**（红色 ✕）
    - 点击 👁 = **查看大图**确认质量
-   - 恰好 8 张时，**确认提交**按钮激活
-6. 可随时点击 **"我的选择"** 查看已提交的 8 张
+   - 恰好达到配置数量时，**确认提交**按钮激活
+6. 可随时点击 **"我的选择"** 查看已提交的 N 张
 7. 点击 **"退出"** 可切换身份（同学 ↔ 管理员）
 
 ### 管理员端

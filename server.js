@@ -8,6 +8,9 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 选择数量配置（默认8张）
+const SELECTION_COUNT = parseInt(process.env.SELECTION_COUNT) || 8;
+
 // 安全响应头
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -368,13 +371,13 @@ app.post('/api/selections', requireAuth, (req, res) => {
     return res.status(400).json({ success: false, message: '参数错误' });
   }
   
-  if (photoIds.length !== 8) {
-    return res.status(400).json({ success: false, message: '必须选择恰好8张照片' });
+  if (photoIds.length !== SELECTION_COUNT) {
+    return res.status(400).json({ success: false, message: `必须选择恰好${SELECTION_COUNT}张照片` });
   }
   
   // 验证 photoIds：唯一、正整数、存在性
   const uniqueIds = new Set(photoIds);
-  if (uniqueIds.size !== 8) {
+  if (uniqueIds.size !== SELECTION_COUNT) {
     return res.status(400).json({ success: false, message: '选中的照片不能重复' });
   }
   
@@ -392,7 +395,7 @@ app.post('/api/selections', requireAuth, (req, res) => {
     (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: '数据库错误' });
       
-      if (rows.length !== 8) {
+      if (rows.length !== SELECTION_COUNT) {
         return res.status(400).json({ success: false, message: '部分照片不存在，请刷新后重试' });
       }
       
@@ -496,7 +499,8 @@ app.get('/api/settings', (req, res) => {
   res.json({
     success: true,
     deadline: process.env.DEADLINE || null,
-    isDeadlinePassed: isDeadlinePassed()
+    isDeadlinePassed: isDeadlinePassed(),
+    selectionCount: SELECTION_COUNT
   });
 });
 
@@ -566,7 +570,7 @@ app.post('/api/admin/stats', requireAdmin, (req, res) => {
         res.json({
           success: true,
           totalUsers: userRows.length,
-          completedUsers: userRows.filter(u => u.photo_ids && JSON.parse(u.photo_ids).length === 8).length,
+          completedUsers: userRows.filter(u => u.photo_ids && JSON.parse(u.photo_ids).length === SELECTION_COUNT).length,
           userSelections,
           photoStats: photoStatsArray
         });
