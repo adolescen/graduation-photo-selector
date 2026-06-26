@@ -614,15 +614,32 @@ app.post('/api/admin/export', requireAdmin, (req, res) => {
     (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: '数据库错误' });
       
-      let csv = '\uFEFF姓名,已选照片数量,照片ID列表,更新时间\n';
-      rows.forEach(row => {
-        const photoIds = row.photo_ids ? JSON.parse(row.photo_ids) : [];
-        csv += `${escapeHtml(row.name)},${photoIds.length},"${photoIds.join(',')}",${row.updated_at || ''}\n`;
+      db.all('SELECT id, oss_key, display_name FROM photos', [], (err, photoRows) => {
+        if (err) return res.status(500).json({ success: false, message: '数据库错误' });
+
+        const photoNameById = {};
+        photoRows.forEach(p => {
+          const fileName = p.display_name || p.oss_key.split('/').pop() || '';
+          photoNameById[p.id] = fileName;
+        });
+
+        const count = SELECTION_COUNT;
+        const photoColumns = Array.from({ length: count }, (_, i) => `照片${i + 1}`).join(',');
+        let csv = '﻿姓名,已选照片数量,' + photoColumns + ',更新时间\n';
+
+        rows.forEach(row => {
+          const photoIds = row.photo_ids ? JSON.parse(row.photo_ids) : [];
+          const photoNames = Array.from({ length: count }, (_, i) => {
+            const pid = photoIds[i];
+            return pid !== undefined ? (photoNameById[pid] || pid) : '';
+          });
+          csv += `${escapeHtml(row.name)},${photoIds.length},${photoNames.join(',')},${row.updated_at || ''}\n`;
+        });
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="selections.csv"');
+        res.send(csv);
       });
-      
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', 'attachment; filename="selections.csv"');
-      res.send(csv);
     }
   );
 });

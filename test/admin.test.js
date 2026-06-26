@@ -65,7 +65,7 @@ test('POST /api/admin/export returns CSV with BOM and correct headers', async ()
     headers: { 'X-Admin-Token': loginRes.body.token }
   });
   assert.strictEqual(res.status, 200);
-  assert.ok(res.body.startsWith('﻿姓名,已选照片数量,照片ID列表,更新时间'));
+  assert.ok(res.body.startsWith('﻿姓名,已选照片数量,照片1,照片2,照片3,照片4,照片5,照片6,照片7,照片8,更新时间'));
 });
 
 test('POST /api/admin/stats returns correct completedUsers count', async () => {
