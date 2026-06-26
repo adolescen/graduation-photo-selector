@@ -1,6 +1,7 @@
+/* global openPhotoViewer, closePhotoViewer */
+
 const API_BASE = '';
 
-let currentUser = null;
 let currentCategory = 'all';
 let currentPage = 1;
 let hasMorePhotos = true;
@@ -28,7 +29,7 @@ function saveCategoryCache(category, page, data) {
     };
     try {
         sessionStorage.setItem(key, JSON.stringify(cache));
-    } catch (e) {
+    } catch {
         // 缓存空间满，忽略
     }
 }
@@ -48,17 +49,9 @@ function loadCategoryCache(category, page) {
             photoCache[p.id] = p;
         });
         return cache;
-    } catch (e) {
+    } catch {
         return null;
     }
-}
-
-function clearAllPhotoCache() {
-    Object.keys(sessionStorage).forEach(key => {
-        if (key.startsWith('photo_cache_')) {
-            sessionStorage.removeItem(key);
-        }
-    });
 }
 
 // 加载分类并渲染按钮
@@ -200,7 +193,6 @@ function submitName() {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            currentUser = { id: data.userId, name: data.name };
             sessionStorage.setItem('userName', data.name);
             sessionStorage.setItem('sessionToken', data.token);
             
@@ -230,7 +222,6 @@ function checkSession() {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                currentUser = { name: savedName, id: data.userId };
                 showPage('selector-page');
                 document.getElementById('display-name').textContent = savedName;
                 loadUserSelection();
@@ -291,7 +282,6 @@ function loadUserSelection() {
         .then(data => {
             if (data.success && data.photoIds) {
                 selectedPhotos = new Set(data.photoIds);
-                currentUser = { id: data.userId, name: data.name };
                 updateSelectionUI();
             }
         })
@@ -549,9 +539,7 @@ function renderConfirmPhotos() {
     const confirmPhotos = document.getElementById('confirm-photos');
     const confirmTitle = document.getElementById('confirm-title');
     const confirmDesc = document.getElementById('confirm-desc');
-    const confirmCount = document.getElementById('confirm-count');
-    const submitBtn = document.getElementById('confirm-submit-btn');
-    
+
     confirmPhotos.innerHTML = '';
     const count = pendingPhotoIds.length;
     
@@ -676,10 +664,6 @@ function previewPhoto(url, title) {
     openPhotoViewer(url, title);
 }
 
-function closePreview() {
-    closePhotoViewer();
-}
-
 // ====== 导航 ======
 function goToDashboard() {
     window.location.href = 'dashboard.html';
@@ -689,7 +673,6 @@ function goToDashboard() {
 function logout() {
     if (!confirm('确定要退出当前身份吗？')) return;
     sessionStorage.clear();
-    currentUser = null;
     selectedPhotos.clear();
     photoCache = {};
     currentCategory = 'all';
