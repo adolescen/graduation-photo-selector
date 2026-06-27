@@ -1,9 +1,12 @@
 name: Sync to Hugging Face Space
 
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to push to HF Space (default: v1.1.0)'
+        required: true
+        default: 'v1.1.0'
 
 jobs:
   sync:
@@ -21,7 +24,8 @@ jobs:
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TAG: ${{ github.event.inputs.tag }}
         run: |
           git remote add hf https://user:${HF_TOKEN}@huggingface.co/spaces/adolescen/graduation-photo-selector.git
           # HF Space tracks the 'main' branch, but GitHub uses 'master'
-          git push hf master:main --force
+          git push hf "refs/tags/${HF_TAG}:refs/heads/main" --force
