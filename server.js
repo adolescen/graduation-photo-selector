@@ -767,6 +767,7 @@ app.post('/api/admin/face/cluster', requireAdmin, async (req, res) => {
   }
 
   try {
+    await faceClient.ensureFaceDb();
     await faceClient.clearFaceDatabase();
     db.run('DELETE FROM face_groups');
     db.run('UPDATE photos SET face_group_id = NULL');
