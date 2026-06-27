@@ -780,7 +780,9 @@ app.post('/api/admin/face/cluster', requireAdmin, async (req, res) => {
 
       for (const row of rows) {
         try {
-          const result = await faceClient.detectAndRegisterFace(row.oss_key);
+          // 适当延迟，避免触发阿里云 QPS 限流
+          if (processed > 0) await new Promise(resolve => setTimeout(resolve, 200));
+          const result = await faceClient.detectAndRegisterFace(row.oss_key, row.id);
           if (result) {
             db.run(
               'INSERT INTO face_groups (aliyun_entity_id, aliyun_face_id, representative_photo_id) VALUES (?, ?, ?)',
